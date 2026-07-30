@@ -135,6 +135,22 @@ chain collapses to zero wherever an ancestor has no height, and on a phone
 `100vh` counts the space under the collapsing address bar. `100dvh` is the
 visible height.
 
+**The bar goes wherever it leaves the squarest view behind.** Across the top
+it costs height, down the side it costs width, and which of those hurts
+depends on the shape of the window - a phone held sideways makes an already
+wide view wider still. Both layouts are measured for real rather than guessed
+from an `(orientation: landscape)` media query, because the thickness of the
+bar is whatever its contents and wrapping make it. Measured: 780x360 keeps
+1.58 with the bar at the side against 2.70 with it on top, 360x780 keeps 1.82
+on top against 5.23 at the side.
+
+Two things about the side column are load-bearing. It must size to its widest
+label, and it must not wrap: stretch it or let it spill into a second column
+and it grows wide enough to lose every comparison it is put up against, so
+the side layout is never chosen and the whole mechanism looks broken. And the
+observer watches the BODY, never the view - the view is what this resizes,
+and an observer on it would answer its own change for ever.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 

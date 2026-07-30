@@ -49,6 +49,8 @@ def main():
         check('value="ortho" checked' in page, "orthographic is the default")
         check('value="on" checked' in page, "edges are on by default")
         check('value="system" checked' in page, "the theme follows the system")
+        check("chooseLayout" in page and "body.side" in page,
+              "the bar can stand on its end, and something chooses which")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()

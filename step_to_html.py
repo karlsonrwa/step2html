@@ -655,7 +655,18 @@ PAGE = r"""<!doctype html>
   #help:hover{background:var(--hover)}
   #help:active{background:var(--press)}
   #help:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-  #view{flex:1 1 auto;min-height:0;position:relative}
+  /* The same bar, stood on its end. Which of the two is used is decided by
+     measurement, not by a media query - see chooseLayout(). */
+  body.side{flex-direction:row}
+  /* The column must be only as wide as its widest label. Stretching it, or
+     letting it wrap into a second column, makes the side layout wide enough
+     to lose every measurement it is put up against. */
+  body.side #bar{flex-direction:column;flex-wrap:nowrap;align-items:flex-start;
+    gap:12px;padding:44px 14px 12px;overflow-y:auto;overflow-x:hidden;
+    max-width:40%;border-bottom:0;border-right:1px solid var(--line)}
+  body.side #bar .grp{flex-direction:column;flex-wrap:nowrap;
+    align-items:flex-start;gap:1px}
+  #view{flex:1 1 auto;min-height:0;min-width:0;position:relative}
   canvas{display:block;width:100%;height:100%;touch-action:none}
   dialog{color:var(--fg);background:var(--panel);border:0;border-radius:8px;
     padding:20px 24px;max-width:32em;box-shadow:0 10px 40px rgba(0,0,0,.45)}
@@ -959,11 +970,29 @@ async function boot(){
   cv.addEventListener('contextmenu',e=>e.preventDefault());
   // Refit on resize, but only until the user has moved the camera themselves.
   cv.addEventListener('dblclick',()=>{touched=false;cam=home();draw()});
-  // Watch the CANVAS box, not the window: the bar wraps onto another line as
-  // the window narrows, which changes the view height without a resize event
-  // of its own.
-  new ResizeObserver(()=>{if(!touched)cam=home();draw()})
-    .observe(document.getElementById('view'));
+  // Put the bar wherever it leaves the SQUAREST view behind.
+  //
+  // A strip across the top costs height, a strip down the side costs width,
+  // and which of those hurts depends on the shape of the window: on a phone
+  // held sideways a top bar makes an already wide view wider still. Both are
+  // measured for real rather than guessed from an orientation media query,
+  // because the thickness of the bar is whatever its contents and wrapping
+  // make it, and that is not knowable in advance.
+  const bar=document.getElementById('bar'), body=document.body;
+  const oblong=(w,h)=>{w=Math.max(w,1);h=Math.max(h,1);return Math.max(w/h,h/w);};
+  function chooseLayout(){
+    const W=innerWidth, H=innerHeight;
+    body.classList.remove('side');
+    const top=bar.offsetHeight;
+    body.classList.add('side');
+    const side=bar.offsetWidth;
+    body.classList.toggle('side', oblong(W-side,H) < oblong(W,H-top));
+  }
+  // Watching the BODY, not the view: the view is what this resizes, and an
+  // observer on it would answer its own change for ever.
+  new ResizeObserver(()=>{chooseLayout();if(!touched)cam=home();draw()})
+    .observe(body);
+  chooseLayout();
   applyTheme();                      // sets the clear colour and draws
 }
 boot();
