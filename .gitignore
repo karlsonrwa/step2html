@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.eggs/
+
+# What this tool makes, and what it is fed
+*.html
+*.step
+*.stp
+*.STEP
+*.STP
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

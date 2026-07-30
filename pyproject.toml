@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "step2html"
+version = "0.1.0"
+description = "Turn a STEP assembly into one self-contained interactive HTML file"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["step", "cad", "occt", "webgl", "viewer", "pcb"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    # OCCT. The only dependency, and the reason a frozen build is large.
+    "cadquery-ocp>=7.7",
+]
+
+[project.scripts]
+step2html = "step_to_html:main"
+
+[tool.setuptools]
+# One module on purpose. Being a single file that can be copied anywhere is
+# a feature of this tool, not an oversight; it grows into a package when
+# there is a second thing to put in one.
+py-modules = ["step_to_html"]

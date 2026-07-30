@@ -1,0 +1,94 @@
+"""The page itself: the payload must survive the trip, and nothing that is
+meant to be substituted may reach the browser unsubstituted.
+
+The damage checks matter because the page PROMISES to report damage rather
+than draw something untrue. If the checksum is not actually wired up, that
+promise is a lie and nobody would notice.
+"""
+from __future__ import annotations
+
+import base64
+import re
+import struct
+import sys
+import tempfile
+import zlib
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import step_to_html as S
+from fixtures import coloured_assembly
+
+FAILURES = []
+
+
+def check(ok, what, detail=""):
+    print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
+    if not ok:
+        FAILURES.append(what)
+
+
+def main():
+    with tempfile.TemporaryDirectory() as tmp:
+        step = coloured_assembly(Path(tmp) / "fixture.step")
+        out = Path(tmp) / "fixture.html"
+        S.main([str(step), "-o", str(out), "--max-bytes", "none"])
+        page = out.read_text(encoding="utf-8")
+
+        left = re.findall(r"__[A-Z_]+__", page)
+        check(not left, "no placeholder reaches the browser", str(left[:4]))
+        check("<html lang=\"en\">" in page, "the page declares English")
+        check(not re.search(r"[Ѐ-ӿ]", page),
+              "no stray non-English text in the page")
+
+        for want in ('name="proj"', 'name="edge"', 'name="theme"',
+                     'id="help"', "<dialog"):
+            check(want in page, f"the page carries {want}")
+        check('value="ortho" checked' in page, "orthographic is the default")
+        check('value="on" checked' in page, "edges are on by default")
+        check('value="system" checked' in page, "the theme follows the system")
+
+        # ---- the payload round-trips -------------------------------------- #
+        b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()
+        crc = int(re.search(r"const CRC=(\d+)", page).group(1))
+        raw = int(re.search(r"RAW=(\d+)", page).group(1))
+        body = zlib.decompress(base64.b64decode(b64), -15)
+        magic, ver, nv, ni, nev, nei = struct.unpack("<4sIIIII", body[:24])
+        check(magic == b"S3DH", "the payload carries its magic", str(magic))
+        check(len(body) == raw, "the recorded length is the real one",
+              f"{len(body)} vs {raw}")
+        check((zlib.crc32(body) & 0xFFFFFFFF) == crc, "the recorded CRC matches")
+        check(nv > 0 and ni > 0 and nei > 0,
+              "vertices, triangles and edges are all present",
+              f"{nv} verts, {ni // 3} tri, {nei // 2} lines")
+
+        # ---- damage is detectable ----------------------------------------- #
+        # Exactly what the page checks before it draws, done here in Python.
+        def survives(mangled: str) -> bool:
+            try:
+                data = zlib.decompress(base64.b64decode(mangled), -15)
+            except Exception:
+                return False
+            return len(data) == raw and (zlib.crc32(data) & 0xFFFFFFFF) == crc
+
+        check(survives(b64), "an untouched payload is accepted")
+        mid = len(b64) // 2
+        flipped = b64[:mid] + ("A" if b64[mid] != "A" else "B") + b64[mid + 1:]
+        check(not survives(flipped), "one changed character is caught")
+        check(not survives(b64[:mid] + b64[mid + 1:]),
+              "one deleted character is caught")
+        check(not survives(b64[:int(len(b64) * 0.9)]),
+              "a truncated payload is caught")
+        # atob ignores whitespace, so the data is genuinely unchanged: accepting
+        # it is right, and this pins that down as intended rather than missed.
+        check(survives(b64[:mid] + " " + b64[mid:]),
+              "inserted whitespace is accepted, because it changes nothing")
+
+    return 1 if FAILURES else 0
+
+
+if __name__ == "__main__":
+    print("the generated page")
+    sys.exit(main())
