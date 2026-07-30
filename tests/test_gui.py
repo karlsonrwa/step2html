@@ -96,9 +96,13 @@ def main():
         # ---- press Generate, and pump until the child answers ---------- #
         app.generate()
         check(app.proc is not None, "a child process was started")
-        check(str(app.generate_button["state"]) == "disabled",
-              "Generate is disabled while running")
-        check(str(app.cancel_button["state"]) == "normal",
+        # ttk state FLAGS, not the "state" option: setting the flag leaves
+        # the option reading "normal", so asking the option would pass while
+        # the control was in fact live.
+        live = [c.winfo_class() for c in app._toggleable()
+                if "disabled" not in c.state()]
+        check(not live, "every control is disabled while running", str(live))
+        check("disabled" not in app.cancel_button.state(),
               "Cancel is available while running")
 
         # Subscribed, not sampled. A small model is converted fast enough that
@@ -133,8 +137,11 @@ def main():
         while app.proc is not None and time.time() < deadline:
             app.pump(); root.update(); time.sleep(0.05)
         check("error" in tags_in(app), "a missing file is logged as an error")
-        check(str(app.generate_button["state"]) == "normal",
+        check("disabled" not in app.generate_button.state(),
               "Generate comes back after a failure")
+        check("disabled" not in app.step_path_entry.state()
+              if hasattr(app, "step_path_entry") else True,
+              "the fields are editable again")
 
         # ---- settings survive a restart ------------------------------- #
         app.angle.set("7.5"); app.budget_mode.set("fixed"); app.budget_mb.set("3")

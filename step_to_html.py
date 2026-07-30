@@ -100,8 +100,10 @@ TEXT = {
     "v_zoom": "Zoom",
     "k_pan": "Right button, Shift-drag, or two fingers",
     "v_pan": "Pan",
+    "k_click": "Single click on the model",
+    "v_click": "Turn about that point from now on",
     "k_reset": "Double click",
-    "v_reset": "Reset the view",
+    "v_reset": "Reset the view and the centre of rotation",
     "close": "Close",
 }
 
@@ -744,6 +746,7 @@ PAGE = r"""<!doctype html>
 <dl><dt>__L_K_ROTATE__</dt><dd>__L_V_ROTATE__</dd>
 <dt>__L_K_ZOOM__</dt><dd>__L_V_ZOOM__</dd>
 <dt>__L_K_PAN__</dt><dd>__L_V_PAN__</dd>
+<dt>__L_K_CLICK__</dt><dd>__L_V_CLICK__</dd>
 <dt>__L_K_RESET__</dt><dd>__L_V_RESET__</dd></dl>
 <button class="close" type="button">__L_CLOSE__</button>
 </dialog>
@@ -884,9 +887,19 @@ async function boot(){
   // ||1 on both sides: a canvas that has not been laid out yet reports 0,
   // and 0/0 is NaN, which would put the camera nowhere and draw a blank
   // first frame until the observer fires.
-  const home=()=>({...HOME,dist:fitDist(HOME.yaw,HOME.pitch,
-                   Math.max(.2,(cv.clientWidth||1)/(cv.clientHeight||1)))});
-  let cam=home(), light=false;
+  const home=()=>{
+    const d=fitDist(HOME.yaw,HOME.pitch,
+                    Math.max(.2,(cv.clientWidth||1)/(cv.clientHeight||1)));
+    // oh is the half-height the ORTHOGRAPHIC view shows, and it is a separate
+    // number from the distance on purpose. Moving the centre of the turn onto
+    // a picked point changes the distance to it - which leaves a perspective
+    // image untouched, but would rescale an orthographic one, since there the
+    // distance IS the zoom. Kept apart, a click changes nothing on screen in
+    // either projection, and the wheel moves both together so the two stay in
+    // step.
+    return {...HOME, pivot:[0,0,0], dist:d, oh:d*Math.tan(FOV/2)};
+  };
+  let cam=home(), light=false, lastMV=null;
   // Orthographic and edges-on are the defaults; the theme follows the
   // system until a radio says otherwise, and goes on following it live.
   let ortho=true, edges=true, themeMode='system';
@@ -924,8 +937,10 @@ async function boot(){
     // wheel keeps zooming in either one.
     let P;
     if(ortho){
-      const t=cam.dist*Math.tan(FOV/2), r=t*a,
-            zn=cam.dist-span*2, zf=cam.dist+span*2;   // zn may go negative: fine
+      const t=cam.oh, r=t*a,
+            // Generous, and deliberately so: the pivot may sit on the near
+            // face of the model, and the far side must still be inside.
+            zn=cam.dist-span*4, zf=cam.dist+span*4;   // zn may go negative: fine
       P=new Float32Array([1/r,0,0,0, 0,1/t,0,0, 0,0,-2/(zf-zn),0,
                           0,0,-(zf+zn)/(zf-zn),1]);
     }else{
@@ -938,7 +953,14 @@ async function boot(){
     const Ry=new Float32Array([cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1]);
     const Rx=new Float32Array([1,0,0,0, 0,cp,sp,0, 0,-sp,cp,0, 0,0,0,1]);
     const Tv=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, cam.px,cam.py,-cam.dist,1]);
-    const MV=mul(Tv,mul(Rx,Ry));
+    // ... and the model shifted so that cam.pivot sits at the centre of the
+    // turn. A click puts the pivot on the point under the cursor, which is
+    // what makes a big board inspectable: rotation and zoom then work on the
+    // detail being looked at rather than on the middle of the whole thing.
+    const Tp=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0,
+                               -cam.pivot[0],-cam.pivot[1],-cam.pivot[2],1]);
+    const MV=mul(Tv,mul(mul(Rx,Ry),Tp));
+    lastMV=MV;
     const MVP=mul(P,MV);
     const lines=edges&&nei;
     gl.useProgram(pr); gl.bindVertexArray(vaSurf);
@@ -966,7 +988,11 @@ async function boot(){
   let touched=false;
   const ptrs=new Map();
   let pinch=null;
-  const setDist=v=>cam.dist=Math.max(span*.05,Math.min(span*20,v));
+  const setDist=v=>{
+    const next=Math.max(span*.05,Math.min(span*20,v));
+    cam.oh*=next/Math.max(cam.dist,1e-9);      // zoom moves both
+    cam.dist=next;
+  };
   function twoFinger(){
     const [a,b]=[...ptrs.values()];
     const dx=b.x-a.x, dy=b.y-a.y;
@@ -975,6 +1001,7 @@ async function boot(){
   cv.addEventListener('pointerdown',e=>{
     cv.setPointerCapture(e.pointerId); touched=true;
     ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,
+                          downX:e.clientX,downY:e.clientY,
                           pan:e.button===2||e.shiftKey});
     pinch = ptrs.size===2 ? twoFinger() : null;
   });
@@ -984,7 +1011,78 @@ async function boot(){
     // its last position, so the next move is a small delta, not a jump.
     pinch = ptrs.size===2 ? twoFinger() : null;
   }
-  cv.addEventListener('pointerup',release);
+  // ---- picking the point to turn about ------------------------------- #
+  // The depth buffer is not readable from the default framebuffer in WebGL,
+  // so the ray is cast against the triangles on the CPU. At a hundred and
+  // fifty thousand of them that is a few milliseconds, once per click, and it
+  // needs no second render target.
+  function toModel(v, isDirection){
+    const x=v[0]-(isDirection?0:cam.px),
+          y=v[1]-(isDirection?0:cam.py),
+          z=v[2]+(isDirection?0:cam.dist);
+    // MV is rigid, so its inverse rotation is the transpose: dot with each
+    // column of the upper-left 3x3.
+    const a=lastMV[0]*x+lastMV[1]*y+lastMV[2]*z,
+          b=lastMV[4]*x+lastMV[5]*y+lastMV[6]*z,
+          c=lastMV[8]*x+lastMV[9]*y+lastMV[10]*z;
+    return isDirection ? [a,b,c]
+                       : [a+cam.pivot[0], b+cam.pivot[1], c+cam.pivot[2]];
+  }
+  function pick(clientX, clientY){
+    if(!lastMV) return null;
+    const r=cv.getBoundingClientRect();
+    const nx=2*(clientX-r.left)/r.width-1, ny=1-2*(clientY-r.top)/r.height;
+    const t=Math.tan(FOV/2), a=Math.max(.2,r.width/r.height);
+    // The orthographic ray starts on the view plane, and its half-height is
+    // cam.oh - the same number the projection uses. Reading it off cam.dist
+    // instead was a ray cast at the wrong scale, which picked the wrong
+    // triangle and took the clipping planes with it.
+    const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, 0] : [0,0,0];
+    const dv = ortho ? [0,0,-1] : [nx*t*a, ny*t, -1];
+    const o=toModel(ov,false), d=toModel(dv,true);
+    let best=Infinity, hit=null;
+    for(let i=0;i<ni;i+=3){
+      const ia=idx[i]*3, ib=idx[i+1]*3, ic=idx[i+2]*3;
+      const e1x=pos[ib]-pos[ia], e1y=pos[ib+1]-pos[ia+1], e1z=pos[ib+2]-pos[ia+2];
+      const e2x=pos[ic]-pos[ia], e2y=pos[ic+1]-pos[ia+1], e2z=pos[ic+2]-pos[ia+2];
+      const px_=d[1]*e2z-d[2]*e2y, py_=d[2]*e2x-d[0]*e2z, pz_=d[0]*e2y-d[1]*e2x;
+      const det=e1x*px_+e1y*py_+e1z*pz_;
+      if(det>-1e-12 && det<1e-12) continue;
+      const inv=1/det;
+      const tx=o[0]-pos[ia], ty=o[1]-pos[ia+1], tz=o[2]-pos[ia+2];
+      const u=(tx*px_+ty*py_+tz*pz_)*inv;
+      if(u<0||u>1) continue;
+      const qx=ty*e1z-tz*e1y, qy=tz*e1x-tx*e1z, qz=tx*e1y-ty*e1x;
+      const v=(d[0]*qx+d[1]*qy+d[2]*qz)*inv;
+      if(v<0||u+v>1) continue;
+      const dist=(e2x*qx+e2y*qy+e2z*qz)*inv;
+      if(dist>1e-6 && dist<best){best=dist; hit=[o[0]+d[0]*dist,
+                                                o[1]+d[1]*dist,
+                                                o[2]+d[2]*dist];}
+    }
+    return hit;
+  }
+  function setPivot(p){
+    // Move the centre of the turn WITHOUT moving the picture. The picked
+    // point keeps the place on screen it already had, because the camera
+    // translation is set to exactly where that point sits in view space -
+    // and cam.dist becomes the true distance to it, so zoom closes on it too.
+    const vx=lastMV[0]*p[0]+lastMV[4]*p[1]+lastMV[8]*p[2]+lastMV[12];
+    const vy=lastMV[1]*p[0]+lastMV[5]*p[1]+lastMV[9]*p[2]+lastMV[13];
+    const vz=lastMV[2]*p[0]+lastMV[6]*p[1]+lastMV[10]*p[2]+lastMV[14];
+    cam.pivot=p; cam.px=vx; cam.py=vy; cam.dist=-vz;
+  }
+  cv.addEventListener('pointerup',e=>{
+    const p=ptrs.get(e.pointerId);
+    // A click, not the end of a drag: a turn of four pixels is still a turn,
+    // and moving the pivot underneath it would be a surprise.
+    if(p && !p.pan && ptrs.size===1 && Math.hypot(e.clientX-p.downX,
+                                                  e.clientY-p.downY) < 4){
+      const target=pick(e.clientX,e.clientY);
+      if(target){ setPivot(target); draw(); }
+    }
+    release(e);
+  });
   cv.addEventListener('pointercancel',release);
   cv.addEventListener('pointermove',e=>{
     const p=ptrs.get(e.pointerId); if(!p) return;
@@ -1102,6 +1200,8 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_V_ZOOM__": html.escape(TEXT["v_zoom"]),
         "__L_K_PAN__": html.escape(TEXT["k_pan"]),
         "__L_V_PAN__": html.escape(TEXT["v_pan"]),
+        "__L_K_CLICK__": html.escape(TEXT["k_click"]),
+        "__L_V_CLICK__": html.escape(TEXT["v_click"]),
         "__L_K_RESET__": html.escape(TEXT["k_reset"]),
         "__L_V_RESET__": html.escape(TEXT["v_reset"]),
         "__L_CLOSE__": html.escape(TEXT["close"]),

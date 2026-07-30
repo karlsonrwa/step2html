@@ -208,6 +208,23 @@ its right place whether or not anything covers it, so a geometry check passes
 while nothing is on screen. `elementFromPoint` is what answers the question
 actually being asked.
 
+**A single click moves the centre of rotation onto the point under it**, the
+way a CAD viewer does, which is what makes a large board inspectable: turning
+and zooming then work on the detail being looked at. The ray is cast against
+the triangles on the CPU, because the depth buffer of the default framebuffer
+is not readable in WebGL; at 150k triangles that is a few milliseconds, once
+per click.
+
+Moving the pivot must not move the picture, and the arithmetic for that is
+one line - put the camera translation exactly where the picked point already
+sits in view space - but it holds only in perspective. In an orthographic
+view the DISTANCE IS THE ZOOM, so changing it rescales everything. Hence
+`cam.oh`, the orthographic half-height, kept as a number of its own: the
+wheel moves it together with the distance, a click moves the distance alone.
+The pick ray has to be built from `cam.oh` as well, or it is cast at the
+wrong scale, picks the wrong triangle, and drags the clipping planes off with
+it.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 

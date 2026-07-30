@@ -56,6 +56,8 @@ def main():
         # this, because #bar comes first in the markup and neither carries a
         # stacking order of its own.
         check("z-index:5" in page, "the help button is lifted above the canvas")
+        check("cam.pivot" in page and "setPivot" in page,
+              "a click can move the centre of rotation")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()

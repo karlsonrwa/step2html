@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import os
 import re
 import queue
 import sys
@@ -327,8 +328,8 @@ class App:
                 summary, output = payload
                 self.log(summary, "success")
                 self._finish(summary)
-                if self.open_when_done.get() and Path(output).is_file():
-                    webbrowser.open(Path(output).as_uri())
+                if self.open_when_done.get():
+                    self.open_result(Path(output))
                 break
 
         # A child that died without saying anything died hard - an access
@@ -342,6 +343,23 @@ class App:
                          f"a crash inside OCCT.")
                 self._finish("Failed")
 
+    @staticmethod
+    def open_result(path: Path) -> None:
+        """Open the finished file the way double-clicking it would.
+
+        webbrowser.open() with a file:// URI hands the URI to whatever is
+        registered for the PROTOCOL, which on Windows need not be the program
+        that opens .html files - so the page came up in a browser the user had
+        not chosen. os.startfile on the path itself uses the file association,
+        which is what "open this file" means.
+        """
+        if not path.is_file():
+            return
+        try:
+            os.startfile(str(path))          # Windows only, and the right call
+        except AttributeError:
+            webbrowser.open(path.as_uri())   # everywhere else
+
     def _finish(self, message: str) -> None:
         if self.proc is not None:
             if self.proc.is_alive():
@@ -352,11 +370,41 @@ class App:
         self._busy(False)
 
     def _busy(self, running: bool) -> None:
-        self.generate_button.configure(state="disabled" if running else "normal")
-        self.cancel_button.configure(state="normal" if running else "disabled")
+        """Everything off but Cancel while a build is in flight.
+
+        Walked rather than listed: a control added later and forgotten off a
+        list would stay live during a build, and editing a field mid-build
+        does nothing to the build in flight - the Options were taken when
+        Generate was pressed - so a field that still accepts typing is simply
+        lying about what it affects.
+        """
+        for widget in self._toggleable():
+            try:
+                widget.state(["disabled"] if running else ["!disabled"])
+            except (tk.TclError, AttributeError):
+                pass
+        self.cancel_button.state(["!disabled"] if running else ["disabled"])
+        if not running:
+            self._sync_enabled()      # the auto/fixed greying, back as it was
         if running:
             self.progress["value"] = 0
             self.status.set("Working...")
+
+    def _toggleable(self):
+        """Every ttk control except Cancel, the bar and the log."""
+        keep = {str(self.cancel_button), str(self.progress), str(self.log_view)}
+        out = []
+
+        def walk(widget):
+            for child in widget.winfo_children():
+                if str(child) not in keep and hasattr(child, "state"):
+                    if not isinstance(child, (ttk.Label, ttk.Frame,
+                                              ttk.LabelFrame, ttk.Scrollbar)):
+                        out.append(child)
+                walk(child)
+
+        walk(self.root)
+        return out
 
     # ------------------------------------------------------------------- log
 
