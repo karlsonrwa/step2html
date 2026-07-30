@@ -196,9 +196,23 @@ class App:
     def _browse_step(self) -> None:
         name = filedialog.askopenfilename(title="Pick a STEP file",
                                           filetypes=STEP_TYPES,
-                                          initialdir=self._remembered("last_step_dir"))
+                                          initialdir=self._step_dir())
         if name:
             self.set_step(name)
+
+    def _step_dir(self) -> str:
+        """Where "Browse..." should open: beside the STEP CURRENTLY chosen.
+
+        The remembered folder is the one this session started in, and it only
+        applies until a file has been picked. Reading it every time meant that
+        after converting a board from one folder, Browse went back to
+        wherever the PREVIOUS session had been - which is the second time a
+        remembered folder has overruled the one in front of the user.
+        """
+        current = self.step_path.get().strip()
+        if current:
+            return str(Path(current).parent)
+        return self._remembered("last_step_dir")
 
     def set_step(self, name: str) -> None:
         """Point at a STEP; the output goes BESIDE IT, every time.

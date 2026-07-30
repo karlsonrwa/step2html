@@ -706,6 +706,20 @@ PAGE = r"""<!doctype html>
   body.side #bar > .grp:first-child{width:0;min-width:100%;
     overflow-wrap:anywhere}
   #view{flex:1 1 auto;min-height:0;min-width:0;position:relative}
+  /* The centre of rotation, drawn as an overlay rather than as geometry: it
+     is projected to a screen position once per frame, which is a great deal
+     less than a second draw call, and CSS animates it for free. */
+  #pivot{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;
+    pointer-events:none;opacity:0;transition:opacity .45s ease}
+  #pivot.on{opacity:.85;animation:pivotpop .3s ease-out}
+  #pivot::before,#pivot::after{content:"";position:absolute;
+    background:var(--accent)}
+  #pivot::before{left:50%;top:0;width:1px;height:100%;margin-left:-.5px}
+  #pivot::after{top:50%;left:0;height:1px;width:100%;margin-top:-.5px}
+  #pivot i{position:absolute;inset:6px;border:1.5px solid var(--accent);
+    border-radius:50%}
+  @keyframes pivotpop{from{transform:scale(2.1);opacity:0}
+                      to{transform:scale(1);opacity:.85}}
   canvas{display:block;width:100%;height:100%;touch-action:none}
   dialog{color:var(--fg);background:var(--panel);border:0;border-radius:8px;
     padding:20px 24px;max-width:32em;box-shadow:0 10px 40px rgba(0,0,0,.45)}
@@ -740,7 +754,8 @@ PAGE = r"""<!doctype html>
 <label><input type="radio" name="theme" value="dark">__L_DARK__</label></div>
 <button id="help" type="button" title="__L_HELP__" aria-label="__L_HELP__">?</button>
 </div>
-<div id="view"><canvas id="cv"></canvas></div>
+<div id="view"><canvas id="cv"></canvas>
+<div id="pivot"><i></i></div></div>
 <dialog id="helpbox">
 <h2>__L_HELP_TITLE__</h2>
 <dl><dt>__L_K_ROTATE__</dt><dd>__L_V_ROTATE__</dd>
@@ -900,6 +915,17 @@ async function boot(){
     return {...HOME, pivot:[0,0,0], dist:d, oh:d*Math.tan(FOV/2)};
   };
   let cam=home(), light=false, lastMV=null;
+  const marker=document.getElementById('pivot');
+  let markerTimer=null;
+  function showMarker(fadeAfter){
+    // Restarting a CSS animation needs the class off, a reflow, then on.
+    marker.classList.remove('on');
+    void marker.offsetWidth;
+    marker.classList.add('on');
+    clearTimeout(markerTimer);
+    if(fadeAfter) markerTimer=setTimeout(()=>marker.classList.remove('on'),
+                                         fadeAfter);
+  }
   // Orthographic and edges-on are the defaults; the theme follows the
   // system until a radio says otherwise, and goes on following it live.
   let ortho=true, edges=true, themeMode='system';
@@ -968,6 +994,15 @@ async function boot(){
     gl.uniformMatrix4fv(uMVP,false,MVP);
     gl.uniformMatrix3fv(uNM,false,new Float32Array([MV[0],MV[1],MV[2],MV[4],MV[5],MV[6],MV[8],MV[9],MV[10]]));
     gl.drawElements(gl.TRIANGLES,ni,gl.UNSIGNED_INT,0);
+    // Where the centre of rotation lands on screen this frame.
+    const pv=cam.pivot;
+    const pw=MVP[3]*pv[0]+MVP[7]*pv[1]+MVP[11]*pv[2]+MVP[15];
+    if(pw>1e-6){
+      const px_=(MVP[0]*pv[0]+MVP[4]*pv[1]+MVP[8]*pv[2]+MVP[12])/pw;
+      const py_=(MVP[1]*pv[0]+MVP[5]*pv[1]+MVP[9]*pv[2]+MVP[13])/pw;
+      marker.style.left=((px_*.5+.5)*w)+'px';
+      marker.style.top=((.5-py_*.5)*h)+'px';
+    }
     if(lines){
       // LEQUAL as well: a line sampled on the true curve and the chords of
       // the mesh that bounds it are not at identical depth, and ties should
@@ -1004,6 +1039,9 @@ async function boot(){
                           downX:e.clientX,downY:e.clientY,
                           pan:e.button===2||e.shiftKey});
     pinch = ptrs.size===2 ? twoFinger() : null;
+    // Held up for the whole of a turn, so it is clear what is being turned
+    // about, and not only for the instant of the click that set it.
+    if(ptrs.size===1 && !(e.button===2||e.shiftKey)) showMarker(0);
   });
   function release(e){
     ptrs.delete(e.pointerId);
@@ -1079,7 +1117,10 @@ async function boot(){
     if(p && !p.pan && ptrs.size===1 && Math.hypot(e.clientX-p.downX,
                                                   e.clientY-p.downY) < 4){
       const target=pick(e.clientX,e.clientY);
-      if(target){ setPivot(target); draw(); }
+      if(target){ setPivot(target); draw(); showMarker(1200); }
+      else showMarker(400);
+    } else {
+      showMarker(500);
     }
     release(e);
   });

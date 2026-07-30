@@ -58,6 +58,8 @@ def main():
         check("z-index:5" in page, "the help button is lifted above the canvas")
         check("cam.pivot" in page and "setPivot" in page,
               "a click can move the centre of rotation")
+        check('id="pivot"' in page and "showMarker" in page,
+              "and the centre of rotation is shown where it landed")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()

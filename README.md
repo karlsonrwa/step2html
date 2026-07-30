@@ -225,6 +225,13 @@ The pick ray has to be built from `cam.oh` as well, or it is cast at the
 wrong scale, picks the wrong triangle, and drags the clipping planes off with
 it.
 
+The point picked is **marked on screen** - a ring and crosshair that pulses
+where the click landed, stays up for the whole of a turn and fades after it.
+It is an HTML overlay whose position is projected once per frame rather than a
+second draw call, so CSS animates it for nothing. Being the centre of the
+turn, it is the one thing on screen that does NOT move while the view rotates,
+which is the clearest possible statement of what it is.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 
