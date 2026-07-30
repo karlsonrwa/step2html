@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import base64
 import html
+import math
 import os
 import stat
 import struct
@@ -340,7 +341,7 @@ def _patch_face(face, linear, angular):
     return None
 
 
-def repair_parts(parts, color_tool, linear, angular, log):
+def repair_parts(parts, color_tool, linear, angular, log, tick=None):
     """Mesh every part and patch, ONE FACE AT A TIME, whatever came out empty.
 
     Some faces come out of a real STEP with no triangles at all, and no
@@ -361,7 +362,9 @@ def repair_parts(parts, color_tool, linear, angular, log):
     out = []
     rescued = 0
     still_bad: list[float] = []
-    for name, rgb, shape, loc in parts:
+    tick = tick or (lambda _d, _t, _w: None)
+    for index, (name, rgb, shape, loc) in enumerate(parts):
+        tick(index, len(parts), f"meshing {name}")
         BRepTools.Clean_s(shape)
         BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
         empty = _empty_faces(shape)
@@ -379,6 +382,7 @@ def repair_parts(parts, color_tool, linear, angular, log):
                 f"{len(empty) - len(left)} patched, {len(left)} left")
         still_bad += left
         out.append((name, rgb, shape, loc, patches))
+    tick(len(parts), len(parts), "meshed")
     return out, rescued, still_bad
 
 
@@ -386,7 +390,7 @@ def repair_parts(parts, color_tool, linear, angular, log):
 # tessellation
 # --------------------------------------------------------------------------- #
 
-def tessellate(parts, color_tool, linear=0.04, angular=0.35):
+def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
     """-> (positions, normals, colours, indices, stats).
 
     Normals are averaged per FACE, so a bend comes out smooth and the edge
@@ -397,6 +401,12 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35):
     col: list[int] = []
     idx: list[int] = []
     faces_seen = 0
+    tick = tick or (lambda _d, _t, _w: None)
+    # Counted up front so the bar means something: a real board is one part
+    # with 900 faces, and per-part progress would sit still for the whole of
+    # it. Per face it moves.
+    total_faces = sum(len(_faces(sh)) + sum(len(_faces(pc)) for pc, _c in pt)
+                      for _n, _r, sh, _l, pt in parts) or 1
 
     for _name, part_rgb, shape, part_loc, patches in parts:
         BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
@@ -408,6 +418,8 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35):
         for piece, patch_rgb in patches:
             jobs += [(f, patch_rgb) for f in _faces(piece)]
         for face, forced in jobs:
+            if faces_seen % 25 == 0:
+                tick(faces_seen, total_faces, "tessellating")
             loc = TopLoc_Location()
             tri = BRep_Tool.Triangulation_s(face, loc)
             if tri is None:
@@ -457,7 +469,8 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35):
         else:
             nrm[i + 2] = 1.0
 
-    epos, eidx, from_mesh, from_curve = collect_edges(parts, linear, angular)
+    epos, eidx, from_mesh, from_curve = collect_edges(
+        parts, linear, angular, tick=tick, total=total_faces)
 
     stats = {
         "parts": len(parts),
@@ -471,7 +484,7 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35):
     return pos, nrm, col, idx, epos, eidx, stats
 
 
-def collect_edges(parts, linear, angular):
+def collect_edges(parts, linear, angular, tick=None, total=1):
     """Real B-rep edges as line segments, taken FROM THE TRIANGULATION.
 
     Not from the true curve, and that is the whole point. OCCT discretises an
@@ -498,6 +511,8 @@ def collect_edges(parts, linear, angular):
     pos: list[float] = []
     idx: list[int] = []
     from_mesh = from_curve = 0
+    tick = tick or (lambda _d, _t, _w: None)
+    done = 0
 
     def emit(points):
         first = len(pos) // 3
@@ -511,6 +526,9 @@ def collect_edges(parts, linear, angular):
         for source in [shape] + [piece for piece, _c in patches]:
             seen = TopTools_IndexedMapOfShape()
             for face in _faces(source):
+                if done % 25 == 0:
+                    tick(done, total, "edges")
+                done += 1
                 floc = TopLoc_Location()
                 tri = BRep_Tool.Triangulation_s(face, floc)
                 trsf = place.Multiplied(floc.Transformation())
@@ -1142,7 +1160,11 @@ class Report:
 # Phases inside ONE build. The search may run several, and the bar starts
 # again for each - which is honest: how many builds there will be is not
 # knowable until the sizes come back.
-PHASES = ("meshing", "tessellating", "compressing", "writing the page")
+PHASES = ("meshing", "tessellating", "edges", "compressing", "writing the page")
+# Roughly what each phase costs, so the bar moves at something like a steady
+# rate instead of sitting at 25% through the longest part of the job.
+WEIGHTS = (0.42, 0.30, 0.16, 0.08, 0.04)
+SPAN = 1000                      # the bar's resolution, in steps
 LIMIT = 8                        # most builds the search may spend
 
 
@@ -1165,13 +1187,21 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     out = Path(opts.out) if opts.out else step.with_suffix(".html")
     title = opts.title or step.stem
 
-    def phase(index, build_no, planned):
-        label = PHASES[index]
+    def phase(index, build_no, planned, done=0, total=1, detail=""):
+        """One bar for the whole of a build, phases taking their share of it.
+
+        Reporting the phase number alone left the bar still for the tens of
+        seconds a real board spends inside one of them, which reads as a
+        program that has stopped.
+        """
+        base = sum(WEIGHTS[:index])
+        value = SPAN * (base + WEIGHTS[index] * min(done / max(total, 1), 1.0))
+        label = detail or PHASES[index]
         if planned > 1:
             label = f"build {build_no} of at most {planned} - {label}"
-        progress(index, len(PHASES), label)
+        progress(int(value), SPAN, label)
 
-    progress(0, len(PHASES), "reading the STEP")
+    progress(0, SPAN, "reading the STEP")
     log(f"Reading {step.name}")
     doc = read_step(step)
     parts, color_tool = collect_parts(doc)
@@ -1205,84 +1235,117 @@ def convert(opts: Options, log=None, progress=None) -> Report:
         deg = max(0.5, base_angle / quality)
         ang = deg * 3.141592653589793 / 180.0
 
+        def tick(done, total, what):
+            # "meshing", "tessellating" and "edges" are phases 0, 1 and 2, and
+            # each reports its own name, so the phase index follows the work.
+            index = PHASES.index(what) if what in PHASES else 0
+            phase(index, n, planned, done, total,
+                  f"{what} {done * 100 // max(total, 1)}%"
+                  if what in PHASES else what)
+
         phase(0, n, planned)
         if not opts.repair:
             prepared = [(nm, c, sh, l, []) for nm, c, sh, l in parts]
-            for _nm, _c, sh, _l, _p in prepared:
+            for i, (_nm, _c, sh, _l, _p) in enumerate(prepared):
+                phase(0, n, planned, i, len(prepared), "meshing")
                 BRepTools.Clean_s(sh)
                 BRepMesh_IncrementalMesh(sh, lin, False, ang, True)
             left = []
         else:
             prepared, _rescued, left = repair_parts(
-                parts, color_tool, lin, ang, log)
+                parts, color_tool, lin, ang, log, tick=tick)
 
         phase(1, n, planned)
         pos, nrm, col, idx, epos, eidx, st = tessellate(
-            prepared, color_tool, linear=lin, angular=ang)
+            prepared, color_tool, linear=lin, angular=ang, tick=tick)
         if not pos:
             raise ConvertError(f"{step.name} tessellated to nothing - no faces?")
 
-        phase(2, n, planned)
+        phase(3, n, planned)
         data, crc, raw = pack(pos, nrm, col, idx, epos, eidx)
 
-        phase(3, n, planned)
+        phase(4, n, planned)
         page = build_page(title, st, data, crc, raw)
         return page, {"bytes": len(page.encode("utf-8")), "stats": st,
                       "left": left, "lin": lin, "deg": deg}
 
-    # Refine by MEASURING, never by predicting: the payload deflates, and how
-    # well it deflates depends on the model.
+    # How the search works, and why it is not a ladder.
     #
-    # Two things are watched and only one of them behaves. Size grows with
-    # quality, so once it is over budget nothing finer can fit and the climb
-    # stops. HOLES DO NOT BEHAVE: on a real connector the mesher builds every
-    # face at 0.0194 mm, fails on two planes of 0.12 mm2 at 0.0076, and
-    # succeeds again finer still. So a setting that opens a hole is SKIPPED
-    # rather than taken as the ceiling, and the climb carries on past it.
+    # Size against quality is close to a power law - halve both deflections
+    # and the payload grows by a fixed factor - so two measurements are
+    # enough to know the exponent for THIS model, and the third build can go
+    # more or less straight to the budget. A fixed ladder of 1.6 with a
+    # bisection after it took seven builds on a real connector where this
+    # takes four, and the builds are the whole of the cost.
+    #
+    # What is NOT predicted is the answer. Every setting that gets kept has
+    # been built and weighed; the fit only chooses where to look next, never
+    # what to accept. That distinction is the reason this converges at all:
+    # how well the payload deflates depends on the model, and no formula
+    # knows it.
+    #
+    # Holes do not follow the curve, or anything else. On a real connector
+    # the mesher builds every face at 0.0194 mm, fails on two planes of
+    # 0.12 mm2 at 0.0076, and succeeds again finer still. A sample that opens
+    # one still tells us about size, so it is kept for the fit and refused as
+    # an answer.
+    MAX_BUILDS = 6
+    TARGET = 0.97               # aim just under the budget, not exactly at it
+    CLOSE_ENOUGH = 0.94         # within this share of it, stop spending builds
+
     page, rep = one_build(1.0)
-    q = 1.0
+    samples = [(1.0, rep["bytes"])]
     floor = sum(rep["left"]) + 1.0e-4
-    best = (page, rep, q)
+    best = (page, rep, 1.0) if not budget or rep["bytes"] <= budget else None
 
     def note(r, verdict):
         log(f"  {r['lin']:.4g} mm / {r['deg']:.3g} deg -> "
             f"{r['bytes']:,} bytes, {verdict}")
 
+    def predict():
+        """Where to look next, from the samples in hand."""
+        target = budget * TARGET
+        (q0, s0) = samples[-1]
+        if len(samples) >= 2:
+            # Exponent from the two most spread-out samples, for the longest
+            # baseline and so the least noise.
+            (qa, sa), (qb, sb) = min(samples), max(samples)
+            if qb > qa and sb > sa > 0:
+                alpha = math.log(sb / sa) / math.log(qb / qa)
+            else:
+                alpha = 1.3
+        else:
+            alpha = 1.3         # a plausible first guess; corrected at once
+        alpha = max(0.3, min(4.0, alpha))
+        return q0 * (target / max(s0, 1)) ** (1.0 / alpha)
+
     if budget:
         note(rep, "kept" if rep["bytes"] <= budget else "over budget")
-    if budget and rep["bytes"] > budget:
-        while rep["bytes"] > budget and counter["n"] < LIMIT and q > 0.15:
-            q /= 1.6
-            page, rep = one_build(q)
-            note(rep, "kept" if rep["bytes"] <= budget else "still over budget")
-        best = (page, rep, q)
-    elif budget:
-        over = None
-        while counter["n"] < LIMIT and q < 24:
-            q *= 1.6
-            trial, trep = one_build(q)
-            if trep["bytes"] > budget:
-                note(trep, "over budget, stopping the climb")
-                over = q
+        while counter["n"] < MAX_BUILDS:
+            if best is not None and best[1]["bytes"] >= budget * CLOSE_ENOUGH:
                 break
-            if sum(trep["left"]) <= floor:
+            q = predict()
+            q = max(0.15, min(24.0, q))
+            if any(abs(math.log(q / seen)) < 0.03 for seen, _ in samples):
+                break           # nowhere new left to look
+            trial, trep = one_build(q)
+            samples.append((q, trep["bytes"]))
+            if trep["bytes"] > budget:
+                note(trep, "over budget")
+            elif sum(trep["left"]) > floor:
+                note(trep, "fits, but opens a hole - refused")
+            elif best is None or trep["bytes"] > best[1]["bytes"]:
                 note(trep, "kept")
                 best = (trial, trep, q)
             else:
-                note(trep, "fits, but opens a hole - skipped")
-        # A ladder of 1.6 leaves the last accepted step well short of the
-        # ceiling. Halve the remaining gap while there are builds to spend.
-        if over is not None:
-            lo, hi = best[2], over
-            while counter["n"] < LIMIT and hi / lo > 1.12:
-                mid = (lo * hi) ** 0.5
-                trial, trep = one_build(mid)
-                if trep["bytes"] <= budget and sum(trep["left"]) <= floor:
-                    note(trep, "kept")
-                    best, lo = (trial, trep, mid), mid
-                else:
-                    note(trep, "no better")
-                    hi = mid
+                note(trep, "no better")
+
+    if best is None:
+        # Nothing fitted, not even the coarsest tried. Give back the smallest
+        # that was built rather than nothing at all, and say so.
+        best = (page, rep, 1.0)
+        log(f"warning: nothing fitted the {budget:,} byte budget; keeping "
+            f"{rep['bytes']:,} bytes")
 
     page, rep, _q = best
     stats, missing = rep["stats"], rep["left"]
@@ -1293,7 +1356,7 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     out.write_text(page, encoding="utf-8")
     if opts.read_only:
         out.chmod(out.stat().st_mode & ~stat.S_IWRITE)
-    progress(len(PHASES), len(PHASES), "done")
+    progress(SPAN, SPAN, "done")
 
     log(f"Mesh {rep['lin']:.4g} mm / {rep['deg']:.3g} deg"
         + (f", chosen by {counter['n']} build(s)" if budget else ""))

@@ -22,10 +22,17 @@ process**: OpenCASCADE can die outright rather than raise, and a thread taking
 that hit would take the window with it, leaving nothing written anywhere. The
 window remembers its settings in `step2html_config.json` beside the script.
 
-The bar tracks the phases of the current build and the label says which build
-it is - `build 3 of at most 8`. It starts again for each one, which is honest:
-with a size budget the number of builds is not knowable until the sizes come
-back.
+The bar tracks the current build, phases taking their share of it by roughly
+what they cost, and moves per FACE inside the long ones - a real board is one
+part with 900 faces, and per-part progress would sit still through the whole
+of it. The label says which build it is, `build 3 of at most 6`; the bar
+starts again for each, which is honest, since with a size budget the number of
+builds is not knowable until the sizes come back.
+
+The window opens centred on a first run and afterwards where it was left,
+maximized if it was closed maximized. A remembered position that is no longer
+reachable - the monitor it was on has been unplugged - is ignored and the
+window is centred instead, rather than opening somewhere invisible.
 
 It works on any STEP, not only on boards.
 
@@ -70,10 +77,16 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `--read-only` | set the read-only attribute, so Notepad refuses to save over it |
 
 The default budget refines the mesh as far as it can while the `.html` stays
-smaller than the `.step` it came from. It gets there by **building and
-weighing** each setting, never by predicting: how well the payload deflates
-depends on the model. Expect several builds and up to a minute or so; pass
-`--max-bytes none` for a single build.
+smaller than the `.step` it came from.
+
+Size against quality is close to a power law, so two measurements give the
+exponent for that particular model and the third build goes more or less
+straight to the budget - three or four builds, where a fixed ladder took
+seven. What is **not** predicted is the answer: every setting that gets kept
+has been built and weighed, and the fit only chooses where to look next. How
+well a payload deflates depends on the model, and no formula knows it.
+
+Pass `--max-bytes none` for a single build.
 
 ## Requirements
 

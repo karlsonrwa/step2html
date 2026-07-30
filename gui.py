@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing as mp
+import re
 import queue
 import sys
 import webbrowser
@@ -58,6 +59,12 @@ class App:
         self.proc = None
         self.channel = None
         self._polling = False
+        # Set only by "Save as...": once a destination has been chosen on
+        # purpose it is kept, and only the file name follows the next STEP.
+        self._chosen_out_dir = ""
+        self._saved_geometry = ""
+        self._saved_state = "normal"
+        self._last_normal_geometry = ""
 
         root.title("step2html")
         root.minsize(620, 520)
@@ -78,6 +85,8 @@ class App:
         self._build_widgets()
         self._load_config()
         self._sync_enabled()
+        self._restore_geometry()
+        root.bind("<Configure>", self._remember_geometry)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------------------------------------------------------------- layout
@@ -187,18 +196,27 @@ class App:
     # ---------------------------------------------------------------- pickers
 
     def _browse_step(self) -> None:
-        start = self._remembered("last_step_dir")
         name = filedialog.askopenfilename(title="Pick a STEP file",
                                           filetypes=STEP_TYPES,
-                                          initialdir=start)
+                                          initialdir=self._remembered("last_step_dir"))
         if name:
             self.set_step(name)
 
     def set_step(self, name: str) -> None:
-        """Also fills the output path, which is what the CLI's default does."""
-        self.step_path.set(name)
-        if not self.out_path.get():
-            self.out_path.set(str(Path(name).with_suffix(".html")))
+        """Point at a STEP, and take the output with it.
+
+        The output follows EVERY time, not only when the field is empty. Left
+        to fill in blanks only, the second board of a session was written over
+        the first one's name in the first one's folder, which is the sort of
+        thing noticed after the fact.
+
+        A destination chosen on purpose through "Save as..." is kept: then the
+        folder stays and only the file name follows.
+        """
+        chosen = Path(name)
+        self.step_path.set(str(chosen))
+        folder = Path(self._chosen_out_dir) if self._chosen_out_dir else chosen.parent
+        self.out_path.set(str(folder / (chosen.stem + ".html")))
 
     def _browse_out(self) -> None:
         name = filedialog.asksaveasfilename(
@@ -206,7 +224,11 @@ class App:
             filetypes=[("HTML", "*.html"), ("All files", "*.*")],
             initialdir=self._remembered("last_out_dir"))
         if name:
-            self.out_path.set(name)
+            # str(Path(...)) throughout: the dialogs hand back forward slashes
+            # on Windows while pathlib prints backslashes, and the two fields
+            # sitting next to each other in different styles look like a bug.
+            self.out_path.set(str(Path(name)))
+            self._chosen_out_dir = str(Path(name).parent)
 
     def _remembered(self, key: str) -> str:
         return self._config.get(key, "") if hasattr(self, "_config") else ""
@@ -343,6 +365,95 @@ class App:
         self.log_view.delete("1.0", "end")
         self.log_view.configure(state="disabled")
 
+
+    # --------------------------------------------------- window placement --
+
+    FIRST_RUN_SIZE = (700, 720)
+
+    def _virtual_screen(self):
+        """(x, y, w, h) covering EVERY monitor, not just the primary one.
+
+        Tk's winfo_screenwidth/height describe the primary display only, so a
+        window legitimately sitting on a second monitor looks off-screen by
+        those numbers - which is exactly the case this exists for. Windows
+        reports the whole virtual desktop through GetSystemMetrics, and a
+        monitor left of the primary gives a negative origin.
+        """
+        try:
+            import ctypes
+            metrics = ctypes.windll.user32.GetSystemMetrics
+            x, y, w, h = (metrics(i) for i in (76, 77, 78, 79))
+            if w > 0 and h > 0:
+                return x, y, w, h
+        except Exception:
+            pass
+        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+
+    def _reachable(self, w, h, x, y) -> bool:
+        """Can the window actually be seen and grabbed here?
+
+        The case that matters: it was last closed on a second monitor that is
+        no longer attached. Restoring those coordinates puts it somewhere
+        invisible with no way to drag it back, which reads as the program
+        failing to start.
+        """
+        vx, vy, vw, vh = self._virtual_screen()
+        if y < vy:
+            return False                       # title bar above every screen
+        seen_w = max(0, min(x + w, vx + vw) - max(x, vx))
+        seen_h = max(0, min(y + h, vy + vh) - max(y, vy))
+        return seen_w >= 120 and seen_h >= 40
+
+    def _centre(self) -> None:
+        """A first run, or a remembered position that is no longer usable."""
+        self.root.update_idletasks()
+        w, h = self.FIRST_RUN_SIZE
+        h = max(h, self.root.winfo_reqheight())
+        self.root.geometry(f"{w}x{h}")
+        self.root.update_idletasks()
+        x = max(0, (self.root.winfo_screenwidth() - w) // 2)
+        y = max(0, (self.root.winfo_screenheight() - h) // 3)
+        self.root.geometry(f"+{x}+{y}")
+
+    def _restore_geometry(self) -> None:
+        if self._saved_geometry:
+            # Tk writes a negative coordinate as "+-1920", so the sign sits
+            # after the plus. A bare "-1920" means something else entirely -
+            # an offset from the right edge - hence the "+" form only.
+            match = re.match(r"^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$",
+                             self._saved_geometry.strip())
+            if match:
+                w, h, x, y = (int(g) for g in match.groups())
+                if self._reachable(w, h, x, y):
+                    self.root.geometry(f"{w}x{h}+{x}+{y}")
+                    if self._saved_state == "zoomed":
+                        try:
+                            self.root.state("zoomed")
+                        except tk.TclError:
+                            pass
+                    return
+                self.root.after(200, lambda: self.log(
+                    "warning: the remembered window position is off-screen (a "
+                    "monitor may have been disconnected); centred instead"))
+        self._centre()
+
+    def _remember_geometry(self, _event=None) -> None:
+        """Keep the last NON-maximized geometry. Bound to <Configure>.
+
+        Maximizing arrives as a Configure that can still be seen while state()
+        reports "normal", so without the second filter the maximized rectangle
+        gets recorded as if the user had chosen it, and unmaximizing later
+        restores nothing.
+        """
+        try:
+            if self.root.state() != "normal":
+                return
+            geometry = self.root.winfo_geometry()
+        except tk.TclError:
+            return
+        if re.match(r"^\d+x\d+\+-?\d+\+-?\d+$", geometry):
+            self._last_normal_geometry = geometry
+
     # ---------------------------------------------------------------- config
 
     def _load_config(self) -> None:
@@ -361,12 +472,9 @@ class App:
         self.repair.set(bool(c.get("repair", True)))
         self.read_only.set(bool(c.get("read_only", False)))
         self.open_when_done.set(bool(c.get("open_when_done", True)))
-        geometry = c.get("geometry", "")
-        if geometry:
-            try:
-                self.root.geometry(geometry)
-            except tk.TclError:
-                pass
+        self._chosen_out_dir = c.get("last_out_dir", "")
+        self._saved_geometry = c.get("geometry", "")
+        self._saved_state = c.get("window_state", "normal")
 
     def save_config(self) -> None:
         step = self.step_path.get().strip()
@@ -384,10 +492,18 @@ class App:
             "read_only": self.read_only.get(),
             "open_when_done": self.open_when_done.get(),
         }
+        # The NON-maximized rectangle, plus whether it was maximized - so a
+        # window closed maximized comes back maximized and unmaximizes to the
+        # size it had before, rather than to the whole screen.
         try:
-            data["geometry"] = self.root.winfo_geometry()
+            state = self.root.state()
         except tk.TclError:
-            pass
+            state = "normal"
+        data["window_state"] = "zoomed" if state == "zoomed" else "normal"
+        data["geometry"] = (self._last_normal_geometry
+                            or self._saved_geometry
+                            or (self.root.winfo_geometry()
+                                if state == "normal" else ""))
         try:
             CONFIG.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError:
