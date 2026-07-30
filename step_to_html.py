@@ -33,6 +33,7 @@ import stat
 import struct
 import sys
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -1104,6 +1105,221 @@ def _js(s: str) -> str:
 # CLI
 # --------------------------------------------------------------------------- #
 
+class ConvertError(Exception):
+    """Anything that makes a conversion impossible, said in one sentence."""
+
+
+@dataclass(frozen=True)
+class Options:
+    """One conversion, as plain values.
+
+    Frozen and primitive on purpose: the GUI hands this across a process
+    boundary, and a widget edited afterwards must not change a build already
+    in flight.
+    """
+
+    step: str
+    out: str = ""                 # "" -> beside the STEP, same stem
+    title: str = ""               # "" -> the file's stem
+    deflection: str = "auto"      # "auto", or millimetres as text
+    angle: float = 15.0
+    max_bytes: str = "auto"       # "auto" (the STEP's own size), "none", or a count
+    repair: bool = True
+    read_only: bool = False
+
+
+@dataclass
+class Report:
+    out: Path
+    size: int
+    stats: dict
+    linear: float
+    angle_deg: float
+    builds: int
+    missing: list          # areas in mm2 of the faces nothing could build
+
+
+# Phases inside ONE build. The search may run several, and the bar starts
+# again for each - which is honest: how many builds there will be is not
+# knowable until the sizes come back.
+PHASES = ("meshing", "tessellating", "compressing", "writing the page")
+LIMIT = 8                        # most builds the search may spend
+
+
+def convert(opts: Options, log=None, progress=None) -> Report:
+    """Do the whole job. The CLI and the GUI both come through here.
+
+    *log* takes one line of text. A line opening with "warning:" or "error:"
+    is coloured as such by the GUI, and reads the same way in a terminal, so
+    put the word in the message rather than inventing a second channel.
+
+    *progress* takes (value, total, label), exactly as far as the current
+    build has got.
+    """
+    log = log or (lambda _m: None)
+    progress = progress or (lambda _v, _t, _l: None)
+
+    step = Path(opts.step)
+    if not step.is_file():
+        raise ConvertError(f"No such file: {step}")
+    out = Path(opts.out) if opts.out else step.with_suffix(".html")
+    title = opts.title or step.stem
+
+    def phase(index, build_no, planned):
+        label = PHASES[index]
+        if planned > 1:
+            label = f"build {build_no} of at most {planned} - {label}"
+        progress(index, len(PHASES), label)
+
+    progress(0, len(PHASES), "reading the STEP")
+    log(f"Reading {step.name}")
+    doc = read_step(step)
+    parts, color_tool = collect_parts(doc)
+    if not parts:
+        raise ConvertError(f"{step.name} holds no shapes")
+    log(f"{len(parts)} part(s)")
+
+    base_angle = opts.angle
+    base_linear = (auto_deflection(parts)
+                   if str(opts.deflection).strip().lower() == "auto"
+                   else float(opts.deflection))
+
+    budget = None
+    want = str(opts.max_bytes).strip().lower()
+    if want == "auto":
+        budget = step.stat().st_size
+    elif want not in ("none", "off", "", "0"):
+        budget = int(float(opts.max_bytes))
+    planned = LIMIT if budget else 1
+    if budget:
+        log(f"Size budget {budget:,} bytes; refining while it fits")
+
+    counter = {"n": 0}
+
+    def one_build(quality):
+        """The whole page at a quality multiplier. 1.0 is the plain automatic
+        mesh; 2.0 halves both deflections, and so on."""
+        counter["n"] += 1
+        n = counter["n"]
+        lin = max(5.0e-4, base_linear / quality)
+        deg = max(0.5, base_angle / quality)
+        ang = deg * 3.141592653589793 / 180.0
+
+        phase(0, n, planned)
+        if not opts.repair:
+            prepared = [(nm, c, sh, l, []) for nm, c, sh, l in parts]
+            for _nm, _c, sh, _l, _p in prepared:
+                BRepTools.Clean_s(sh)
+                BRepMesh_IncrementalMesh(sh, lin, False, ang, True)
+            left = []
+        else:
+            prepared, _rescued, left = repair_parts(
+                parts, color_tool, lin, ang, log)
+
+        phase(1, n, planned)
+        pos, nrm, col, idx, epos, eidx, st = tessellate(
+            prepared, color_tool, linear=lin, angular=ang)
+        if not pos:
+            raise ConvertError(f"{step.name} tessellated to nothing - no faces?")
+
+        phase(2, n, planned)
+        data, crc, raw = pack(pos, nrm, col, idx, epos, eidx)
+
+        phase(3, n, planned)
+        page = build_page(title, st, data, crc, raw)
+        return page, {"bytes": len(page.encode("utf-8")), "stats": st,
+                      "left": left, "lin": lin, "deg": deg}
+
+    # Refine by MEASURING, never by predicting: the payload deflates, and how
+    # well it deflates depends on the model.
+    #
+    # Two things are watched and only one of them behaves. Size grows with
+    # quality, so once it is over budget nothing finer can fit and the climb
+    # stops. HOLES DO NOT BEHAVE: on a real connector the mesher builds every
+    # face at 0.0194 mm, fails on two planes of 0.12 mm2 at 0.0076, and
+    # succeeds again finer still. So a setting that opens a hole is SKIPPED
+    # rather than taken as the ceiling, and the climb carries on past it.
+    page, rep = one_build(1.0)
+    q = 1.0
+    floor = sum(rep["left"]) + 1.0e-4
+    best = (page, rep, q)
+
+    def note(r, verdict):
+        log(f"  {r['lin']:.4g} mm / {r['deg']:.3g} deg -> "
+            f"{r['bytes']:,} bytes, {verdict}")
+
+    if budget:
+        note(rep, "kept" if rep["bytes"] <= budget else "over budget")
+    if budget and rep["bytes"] > budget:
+        while rep["bytes"] > budget and counter["n"] < LIMIT and q > 0.15:
+            q /= 1.6
+            page, rep = one_build(q)
+            note(rep, "kept" if rep["bytes"] <= budget else "still over budget")
+        best = (page, rep, q)
+    elif budget:
+        over = None
+        while counter["n"] < LIMIT and q < 24:
+            q *= 1.6
+            trial, trep = one_build(q)
+            if trep["bytes"] > budget:
+                note(trep, "over budget, stopping the climb")
+                over = q
+                break
+            if sum(trep["left"]) <= floor:
+                note(trep, "kept")
+                best = (trial, trep, q)
+            else:
+                note(trep, "fits, but opens a hole - skipped")
+        # A ladder of 1.6 leaves the last accepted step well short of the
+        # ceiling. Halve the remaining gap while there are builds to spend.
+        if over is not None:
+            lo, hi = best[2], over
+            while counter["n"] < LIMIT and hi / lo > 1.12:
+                mid = (lo * hi) ** 0.5
+                trial, trep = one_build(mid)
+                if trep["bytes"] <= budget and sum(trep["left"]) <= floor:
+                    note(trep, "kept")
+                    best, lo = (trial, trep, mid), mid
+                else:
+                    note(trep, "no better")
+                    hi = mid
+
+    page, rep, _q = best
+    stats, missing = rep["stats"], rep["left"]
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        out.chmod(out.stat().st_mode | stat.S_IWRITE)   # a previous read-only
+    out.write_text(page, encoding="utf-8")
+    if opts.read_only:
+        out.chmod(out.stat().st_mode & ~stat.S_IWRITE)
+    progress(len(PHASES), len(PHASES), "done")
+
+    log(f"Mesh {rep['lin']:.4g} mm / {rep['deg']:.3g} deg"
+        + (f", chosen by {counter['n']} build(s)" if budget else ""))
+    log(f"{stats['parts']} part(s), {stats['faces']} face(s), "
+        f"{stats['vertices']:,} vertices, {stats['triangles']:,} triangles, "
+        f"{stats['edges']:,} edge segment(s)")
+    if missing:
+        big = max(missing)
+        if big < 1.0e-3:
+            log(f"{len(missing)} face(s) could not be meshed at all; largest "
+                f"is {big:.3g} mm2 - too small to see")
+        else:
+            log(f"warning: {len(missing)} face(s) could not be meshed at all; "
+                f"largest is {big:.3g} mm2 - look for a hole there")
+    else:
+        log("Every face meshed")
+
+    return Report(out=out, size=out.stat().st_size, stats=stats,
+                  linear=rep["lin"], angle_deg=rep["deg"],
+                  builds=counter["n"], missing=list(missing))
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Turn a STEP assembly into one self-contained interactive "
@@ -1119,6 +1335,9 @@ def main(argv=None):
   python step_to_html.py board.step --max-bytes none
       -> one build at the automatic mesh, instead of searching for the finest
          mesh that still fits inside the size of the STEP
+
+  python gui.py
+      -> the same thing with a window around it
 """)
     ap.add_argument("step", type=Path, help="the STEP file to convert")
     ap.add_argument("-o", "--out", type=Path, default=None,
@@ -1141,140 +1360,25 @@ def main(argv=None):
                          "and friends refuse to save over it")
     args = ap.parse_args(argv)
 
-    if not args.step.is_file():
-        raise SystemExit(f"no such file: {args.step}")
-    out = args.out or args.step.with_suffix(".html")
-    title = args.title or args.step.stem
+    opts = Options(
+        step=str(args.step),
+        out=str(args.out) if args.out else "",
+        title=args.title or "",
+        deflection=str(args.deflection),
+        angle=args.angle,
+        max_bytes=str(args.max_bytes),
+        repair=not args.no_repair,
+        read_only=args.read_only,
+    )
+    try:
+        report = convert(opts, log=print)
+    except ConvertError as exc:
+        raise SystemExit(str(exc))
 
-    doc = read_step(args.step)
-    parts, color_tool = collect_parts(doc)
-    if not parts:
-        raise SystemExit(f"{args.step.name} holds no shapes")
-
-    base_angle = args.angle
-    base_linear = (auto_deflection(parts) if str(args.deflection).lower() == "auto"
-                   else float(args.deflection))
-
-    budget = None
-    want = str(args.max_bytes).lower()
-    if want == "auto":
-        budget = args.step.stat().st_size
-    elif want not in ("none", "off", "0"):
-        budget = int(args.max_bytes)
-
-    raw_parts = parts
-    hush = lambda _m: None
-
-    def build(quality):
-        """Build the whole page at a quality multiplier. 1.0 is the plain
-        automatic mesh; 2.0 halves both deflections, and so on."""
-        lin = max(5.0e-4, base_linear / quality)
-        deg = max(0.5, base_angle / quality)
-        ang = deg * 3.141592653589793 / 180.0
-        if args.no_repair:
-            p = [(n, c, sh, l, []) for n, c, sh, l in raw_parts]
-            for _n, _c, sh, _l, _p in p:
-                BRepTools.Clean_s(sh)
-                BRepMesh_IncrementalMesh(sh, lin, False, ang, True)
-            left = []
-        else:
-            p, _resc, left = repair_parts(raw_parts, color_tool, lin, ang, hush)
-        pos, nrm, col, idx, epos, eidx, st = tessellate(
-            p, color_tool, linear=lin, angular=ang)
-        if not pos:
-            raise SystemExit(f"{args.step.name} tessellated to nothing - no faces?")
-        data, crc, raw = pack(pos, nrm, col, idx, epos, eidx)
-        # Enough to clear the chordal error of the triangles, but capped
-        # against the size of the model so it can never reach the thickness
-        # of a copper layer - at 1.5x a coarse deflection it came out at
-        # 0.035 mm on a board whose copper is 0.018, and a line that thick
-        # shows through the layer it belongs to.
-        page = build_page(title, st, data, crc, raw)
-        return page, {"bytes": len(page.encode("utf-8")), "stats": st,
-                      "left": left, "lin": lin, "deg": deg}
-
-    # Refine by MEASURING, never by predicting: the payload deflates, and how
-    # well it deflates depends on the model.
-    #
-    # Two things are being watched, and only one of them behaves. Size grows
-    # with quality, so once it is over budget nothing finer can fit and the
-    # climb stops. HOLES DO NOT BEHAVE: on a real connector the mesher builds
-    # every face at 0.0194 mm, fails on two planes of 0.12 mm2 at 0.0076, and
-    # succeeds again finer still. So a setting that opens a hole is SKIPPED
-    # rather than treated as the ceiling, and the climb carries on past it.
-    # What is kept is the finest setting that was measured to fit the budget
-    # AND to lose no more material than the plain automatic mesh.
-    LIMIT = 8
-    page, rep = build(1.0)
-    builds, q = 1, 1.0
-    floor = sum(rep["left"]) + 1.0e-4
-    best = (page, rep, q)
-    skipped = []
-
-    if budget and rep["bytes"] > budget:
-        while rep["bytes"] > budget and builds < LIMIT and q > 0.15:
-            q /= 1.6
-            page, rep = build(q)
-            builds += 1
-        best = (page, rep, q)
-    elif budget:
-        over = None
-        while builds < LIMIT and q < 24:
-            q *= 1.6
-            trial, trep = build(q)
-            builds += 1
-            if trep["bytes"] > budget:
-                over = q
-                break
-            if sum(trep["left"]) <= floor:
-                best = (trial, trep, q)
-            else:
-                skipped.append(f"{trep['lin']:.3g} mm/{trep['deg']:.3g} deg")
-        # A ladder of 1.6 leaves the last accepted step well short of the
-        # ceiling. Halve the remaining gap while there are builds to spend.
-        if over is not None:
-            lo, hi = best[2], over
-            while builds < LIMIT and hi / lo > 1.12:
-                mid = (lo * hi) ** 0.5
-                trial, trep = build(mid)
-                builds += 1
-                if trep["bytes"] <= budget and sum(trep["left"]) <= floor:
-                    best, lo = (trial, trep, mid), mid
-                else:
-                    hi = mid
-
-    page, rep, q = best
-    stats, still_bad = rep["stats"], rep["left"]
-    print(f"  mesh: {rep['lin']:.4g} mm / {rep['deg']:.3g} deg"
-          + (f", chosen by {builds} build(s) under a "
-             f"{budget:,} byte budget" if budget else " (auto)"))
-    for what in skipped:
-        print(f"    skipped {what}: it fit the budget but opened a hole")
-
-    out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():
-        out.chmod(out.stat().st_mode | stat.S_IWRITE)   # a previous --read-only
-    out.write_text(page, encoding="utf-8")
-    if args.read_only:
-        out.chmod(out.stat().st_mode & ~stat.S_IWRITE)
-
-    print(f"{args.step.name}: {args.step.stat().st_size:,} bytes STEP")
-    print(f"  {stats['parts']} part(s), {stats['faces']} face(s), "
-          f"{stats['vertices']:,} vertices, {stats['triangles']:,} triangles, "
-          f"{stats['edges']:,} edge segment(s)")
-    if still_bad:
-        big = max(still_bad)
-        print(f"  {len(still_bad)} face(s) could not be meshed at all; "
-              f"largest is {big:.3g} mm2"
-              + ("  - too small to see, ignore it" if big < 1e-3 else
-                 "  - LOOK FOR A HOLE THERE"))
-    else:
-        print("  every face meshed")
-    size = out.stat().st_size
-    share = (f" ({100.0 * size / args.step.stat().st_size:.0f}% of the STEP)"
-             if args.step.stat().st_size else "")
-    print(f"{out}: {size:,} bytes HTML{share}"
-          f"{' (read-only)' if args.read_only else ''}")
+    source = Path(opts.step).stat().st_size
+    share = f" ({100.0 * report.size / source:.0f}% of the STEP)" if source else ""
+    print(f"{report.out}: {report.size:,} bytes HTML{share}"
+          f"{' (read-only)' if opts.read_only else ''}")
     return 0
 
 

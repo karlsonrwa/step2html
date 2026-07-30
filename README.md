@@ -10,6 +10,23 @@ That writes `board.html` beside it. Double-click it: the model spins in any
 current browser, on a phone as well as a desktop. No Acrobat, no plugin, no
 internet, no server, and nothing to install for whoever you send it to.
 
+Or with a window around it:
+
+```bash
+python gui.py
+```
+
+Every flag below has a control there, a log coloured the way Simple 3D colours
+its own, a progress bar and a Cancel button. The conversion runs in a **child
+process**: OpenCASCADE can die outright rather than raise, and a thread taking
+that hit would take the window with it, leaving nothing written anywhere. The
+window remembers its settings in `step2html_config.json` beside the script.
+
+The bar tracks the phases of the current build and the label says which build
+it is - `build 3 of at most 8`. It starts again for each one, which is honest:
+with a size budget the number of builds is not knowable until the sizes come
+back.
+
 It works on any STEP, not only on boards.
 
 ---

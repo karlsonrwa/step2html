@@ -15,6 +15,9 @@ venv/
 *.STEP
 *.STP
 
+# What the window remembers between runs
+step2html_config.json
+
 # Editors / OS
 .vscode/
 .idea/

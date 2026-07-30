@@ -14,6 +14,7 @@ JOBS = [
     ("colours and geometry", TESTS / "test_model.py"),
     ("the generated page", TESTS / "test_page.py"),
     ("repairing a refused face", TESTS / "test_repair.py"),
+    ("the window",               TESTS / "test_gui.py"),
 ]
 
 

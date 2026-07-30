@@ -23,8 +23,11 @@ dependencies = [
 [project.scripts]
 step2html = "step_to_html:main"
 
+[project.gui-scripts]
+step2html-gui = "gui:main"
+
 [tool.setuptools]
-# One module on purpose. Being a single file that can be copied anywhere is
-# a feature of this tool, not an oversight; it grows into a package when
-# there is a second thing to put in one.
-py-modules = ["step_to_html"]
+# Flat modules on purpose. step_to_html.py is the whole pipeline and can
+# still be copied anywhere on its own; gui.py and worker.py sit beside it
+# and are only needed for the window.
+py-modules = ["step_to_html", "gui", "worker"]
