@@ -63,8 +63,20 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
         app.set_step(str(step))
-        check(app.out_path.get().endswith("fixture.html"),
-              "picking a STEP fills the output path in")
+        check(app.out_path.get() == str(step.with_suffix(".html")),
+              "the output lands beside the STEP", app.out_path.get())
+
+        # A second file must take the output with it, folder and all. Both
+        # earlier attempts failed here: one filled the field only when empty,
+        # the other kept a folder remembered from a previous session.
+        elsewhere = Path(tmp) / "another place"
+        elsewhere.mkdir()
+        second_step = coloured_assembly(elsewhere / "second.step")
+        app.set_step(str(second_step))
+        check(app.out_path.get() == str(second_step.with_suffix(".html")),
+              "a second STEP moves the output to its own folder",
+              app.out_path.get())
+        app.set_step(str(step))
 
         app.budget_mode.set("auto")
         check(app.options().max_bytes == "auto", "budget 'auto' reaches Options")

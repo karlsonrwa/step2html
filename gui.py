@@ -59,9 +59,6 @@ class App:
         self.proc = None
         self.channel = None
         self._polling = False
-        # Set only by "Save as...": once a destination has been chosen on
-        # purpose it is kept, and only the file name follows the next STEP.
-        self._chosen_out_dir = ""
         self._saved_geometry = ""
         self._saved_state = "normal"
         self._last_normal_geometry = ""
@@ -203,32 +200,43 @@ class App:
             self.set_step(name)
 
     def set_step(self, name: str) -> None:
-        """Point at a STEP, and take the output with it.
+        """Point at a STEP; the output goes BESIDE IT, every time.
 
-        The output follows EVERY time, not only when the field is empty. Left
-        to fill in blanks only, the second board of a session was written over
-        the first one's name in the first one's folder, which is the sort of
-        thing noticed after the fact.
+        One rule, and it is the command line's rule. Two attempts at being
+        clever were both wrong in use. Filling the field in only when empty
+        left the second board of a session pointed at the first one's name in
+        the first one's folder. Remembering a folder chosen once through
+        "Save as..." was worse: restored from the settings file it made every
+        later session start as though a destination had been chosen by hand,
+        so opening a STEP proposed writing somewhere else entirely.
 
-        A destination chosen on purpose through "Save as..." is kept: then the
-        folder stays and only the file name follows.
+        Somewhere else is what "Save as..." is for, and it applies to the one
+        conversion in front of you.
         """
         chosen = Path(name)
         self.step_path.set(str(chosen))
-        folder = Path(self._chosen_out_dir) if self._chosen_out_dir else chosen.parent
-        self.out_path.set(str(folder / (chosen.stem + ".html")))
+        self.out_path.set(str(chosen.with_suffix(".html")))
 
     def _browse_out(self) -> None:
         name = filedialog.asksaveasfilename(
             title="Save the HTML as", defaultextension=".html",
             filetypes=[("HTML", "*.html"), ("All files", "*.*")],
-            initialdir=self._remembered("last_out_dir"))
+            initialdir=self._out_dir())
         if name:
             # str(Path(...)) throughout: the dialogs hand back forward slashes
             # on Windows while pathlib prints backslashes, and the two fields
             # sitting next to each other in different styles look like a bug.
             self.out_path.set(str(Path(name)))
-            self._chosen_out_dir = str(Path(name).parent)
+
+    def _out_dir(self) -> str:
+        """Where "Save as..." should open: at the output already proposed,
+        which is beside the STEP. Not at some folder written to in a previous
+        session - that is how this got the destination wrong in the first
+        place."""
+        for candidate in (self.out_path.get().strip(), self.step_path.get().strip()):
+            if candidate:
+                return str(Path(candidate).parent)
+        return ""
 
     def _remembered(self, key: str) -> str:
         return self._config.get(key, "") if hasattr(self, "_config") else ""
@@ -472,16 +480,15 @@ class App:
         self.repair.set(bool(c.get("repair", True)))
         self.read_only.set(bool(c.get("read_only", False)))
         self.open_when_done.set(bool(c.get("open_when_done", True)))
-        self._chosen_out_dir = c.get("last_out_dir", "")
         self._saved_geometry = c.get("geometry", "")
         self._saved_state = c.get("window_state", "normal")
 
     def save_config(self) -> None:
         step = self.step_path.get().strip()
-        out = self.out_path.get().strip()
         data = {
+            # Only where the MODELS are. The output folder is deliberately not
+            # remembered - see set_step.
             "last_step_dir": str(Path(step).parent) if step else "",
-            "last_out_dir": str(Path(out).parent) if out else "",
             "title": self.title_text.get().strip(),
             "auto_deflection": self.auto_deflection.get(),
             "deflection": self.deflection.get().strip(),
