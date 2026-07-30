@@ -69,7 +69,61 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
+__version__ = "0.2.0"
+"""The one place the number lives; pyproject reads it from here.
+
+Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
+change to what the generated file looks like. The commit is stamped beside it
+at generation time, because between two files carrying the same number there
+can be a dozen commits of repairs, and the hash is what pins the source when
+somebody sends a file back with a question.
+"""
+
 DEFAULT_RGB = (170, 170, 170)
+
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+_commit = None
+
+
+def tool_version() -> str:
+    """"0.2.0 - f323ec6", or just the number where git cannot answer.
+
+    Asked once per process and remembered: a subprocess per conversion is
+    wasteful, and the answer cannot change while we run. A copy of this file
+    taken somewhere without a repository still reports its number, which is
+    the point of keeping the number in the source rather than deriving it.
+    """
+    global _commit
+    if _commit is None:
+        _commit = ""
+        try:
+            import subprocess
+            here = Path(__file__).resolve().parent
+            out = subprocess.run(["git", "-C", str(here), "rev-parse",
+                                  "--short", "HEAD"],
+                                 capture_output=True, text=True, timeout=5)
+            if out.returncode == 0:
+                _commit = out.stdout.strip()
+                dirty = subprocess.run(["git", "-C", str(here), "status",
+                                        "--porcelain"],
+                                       capture_output=True, text=True, timeout=5)
+                if dirty.returncode == 0 and dirty.stdout.strip():
+                    # Said out loud: a file built from an edited tree cannot be
+                    # reproduced from the commit it names.
+                    _commit += "+edits"
+        except Exception:
+            _commit = ""
+    return f"{__version__} · {_commit}" if _commit else __version__
+
+
+def today() -> str:
+    """A date the page can show in any locale. strftime("%b") would print a
+    Russian month on a Russian Windows, in the middle of an English page."""
+    from datetime import date
+    d = date.today()
+    return f"{d.day} {MONTHS[d.month - 1]} {d.year}"
 
 # Everything the page says, in one place. Change the language here.
 TEXT = {
@@ -105,6 +159,9 @@ TEXT = {
     "k_reset": "Double click",
     "v_reset": "Reset the view and the centre of rotation",
     "close": "Close",
+    "about_source": "Source",
+    "about_mesh": "Mesh",
+    "about_made": "Made",
 }
 
 
@@ -628,6 +685,7 @@ def pack(pos, nrm, col, idx, epos=(), eidx=()):
 PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="__M_GENERATOR__">
 <title>__TITLE__</title>
 <style>
   /* color-scheme drives the native radio buttons and the scrollbars, so they
@@ -729,6 +787,10 @@ PAGE = r"""<!doctype html>
   dialog dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 18px}
   dialog dt{color:var(--strong)}
   dialog dd{margin:0;opacity:.7}
+  dialog hr{border:0;border-top:1px solid var(--line);margin:16px 0 12px}
+  dialog .about{font-size:12px;opacity:.75}
+  dialog .about dt{color:var(--fg);font-weight:400}
+  dialog .made{margin:12px 0 0;font-size:11px;opacity:.5;letter-spacing:.04em}
   dialog .close{display:block;margin:18px 0 0 auto;font:inherit;font-size:12px;
     font-weight:600;letter-spacing:.05em;text-transform:uppercase;
     color:var(--accent);background:none;border:0;border-radius:4px;
@@ -763,6 +825,12 @@ PAGE = r"""<!doctype html>
 <dt>__L_K_PAN__</dt><dd>__L_V_PAN__</dd>
 <dt>__L_K_CLICK__</dt><dd>__L_V_CLICK__</dd>
 <dt>__L_K_RESET__</dt><dd>__L_V_RESET__</dd></dl>
+<hr>
+<dl class="about">
+<dt>__L_ABOUT_SOURCE__</dt><dd>__M_SOURCE__</dd>
+<dt>__L_ABOUT_MESH__</dt><dd>__M_MESH__</dd>
+<dt>__L_ABOUT_MADE__</dt><dd>__M_MADE__</dd></dl>
+<p class="made">__M_VERSION__</p>
 <button class="close" type="button">__L_CLOSE__</button>
 </dialog>
 <div id="err"><p id="errtext"></p></div>
@@ -883,27 +951,55 @@ async function boot(){
   const uMVP=gl.getUniformLocation(pr,'uMVP'),uMV=gl.getUniformLocation(pr,'uMV'),
         uNM=gl.getUniformLocation(pr,'uNM');
   const FOV=Math.PI/6;                       // 30 degrees vertical
+  // Orientation is a MATRIX, turned by the axes of the screen, not a pair of
+  // yaw and pitch angles. Angles have poles: pitch has to be stopped just
+  // short of straight down, or crossing it flips the horizon and reverses
+  // what a sideways drag does. That stop is what a drag runs into. A matrix
+  // turned about the screen's own axes has nowhere to run into - the model
+  // rolls on for ever in whichever direction the mouse goes.
+  const rotX=a=>{const c=Math.cos(a),s=Math.sin(a);
+    return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]);};
+  const rotY=a=>{const c=Math.cos(a),s=Math.sin(a);
+    return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]);};
+  function orthonormalise(m){
+    // A rotation multiplied by another a few thousand times in float32 stops
+    // being quite a rotation, and the model starts to shear. Gram-Schmidt on
+    // the three columns, once per drag, costs nothing and prevents it.
+    const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+    const norm=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;
+                   return [v[0]/l,v[1]/l,v[2]/l];};
+    let u=norm([m[0],m[1],m[2]]);
+    let v=[m[4],m[5],m[6]];
+    const k=dot(v,u);
+    v=norm([v[0]-k*u[0], v[1]-k*u[1], v[2]-k*u[2]]);
+    const w=[u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+    m[0]=u[0];m[1]=u[1];m[2]=u[2];
+    m[4]=v[0];m[5]=v[1];m[6]=v[2];
+    m[8]=w[0];m[9]=w[1];m[10]=w[2];
+    return m;
+  }
   // Distance that just fits the eight bbox corners at this orientation. A
   // bounding-sphere fit leaves a long thin board swimming in empty frame -
   // measured 1.38x too far away on the folded rigid-flex test board.
-  function fitDist(yaw,pitch,aspect){
-    const t=Math.tan(FOV/2), cy=Math.cos(yaw),sy=Math.sin(yaw),
-          cp=Math.cos(pitch),sp=Math.sin(pitch);
+  function fitDist(rot,aspect){
+    const t=Math.tan(FOV/2);
     let d=0;
-    for(const sx of[-1,1])for(const sYy of[-1,1])for(const sz of[-1,1]){
-      const X=sx*HX,Y=sYy*HY,Z=sz*HZ;
-      const x1=cy*X+sy*Z, y1=Y, z1=-sy*X+cy*Z;          // yaw about Y
-      const x2=x1, y2=cp*y1+sp*z1, z2=-sp*y1+cp*z1;     // then pitch about X
-      d=Math.max(d, Math.abs(x2)/(t*aspect)+z2, Math.abs(y2)/t+z2);
+    for(const sx of[-1,1])for(const sy of[-1,1])for(const sz of[-1,1]){
+      const X=sx*HX,Y=sy*HY,Z=sz*HZ;
+      const x=rot[0]*X+rot[4]*Y+rot[8]*Z;
+      const y=rot[1]*X+rot[5]*Y+rot[9]*Z;
+      const z=rot[2]*X+rot[6]*Y+rot[10]*Z;
+      d=Math.max(d, Math.abs(x)/(t*aspect)+z, Math.abs(y)/t+z);
     }
     return d*1.04;
   }
-  const HOME={yaw:-.6,pitch:.95,dist:0,px:0,py:0};
+  const HOME_ROT=mul(rotX(.95),rotY(-.6));   // the view it opens at
+  const HOME={dist:0,px:0,py:0};
   // ||1 on both sides: a canvas that has not been laid out yet reports 0,
   // and 0/0 is NaN, which would put the camera nowhere and draw a blank
   // first frame until the observer fires.
   const home=()=>{
-    const d=fitDist(HOME.yaw,HOME.pitch,
+    const d=fitDist(HOME_ROT,
                     Math.max(.2,(cv.clientWidth||1)/(cv.clientHeight||1)));
     // oh is the half-height the ORTHOGRAPHIC view shows, and it is a separate
     // number from the distance on purpose. Moving the centre of the turn onto
@@ -912,7 +1008,8 @@ async function boot(){
     // distance IS the zoom. Kept apart, a click changes nothing on screen in
     // either projection, and the wheel moves both together so the two stay in
     // step.
-    return {...HOME, pivot:[0,0,0], dist:d, oh:d*Math.tan(FOV/2)};
+    return {...HOME, pivot:[0,0,0], rot:new Float32Array(HOME_ROT),
+            dist:d, oh:d*Math.tan(FOV/2)};
   };
   let cam=home(), light=false, lastMV=null;
   const marker=document.getElementById('pivot');
@@ -975,9 +1072,6 @@ async function boot(){
       P=new Float32Array([f/a,0,0,0, 0,f,0,0, 0,0,(zf+zn)/(zn-zf),-1,
                           0,0,2*zf*zn/(zn-zf),0]);
     }
-    const cy=Math.cos(cam.yaw),sy=Math.sin(cam.yaw),cp=Math.cos(cam.pitch),sp=Math.sin(cam.pitch);
-    const Ry=new Float32Array([cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1]);
-    const Rx=new Float32Array([1,0,0,0, 0,cp,sp,0, 0,-sp,cp,0, 0,0,0,1]);
     const Tv=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, cam.px,cam.py,-cam.dist,1]);
     // ... and the model shifted so that cam.pivot sits at the centre of the
     // turn. A click puts the pivot on the point under the cursor, which is
@@ -985,7 +1079,7 @@ async function boot(){
     // detail being looked at rather than on the middle of the whole thing.
     const Tp=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0,
                                -cam.pivot[0],-cam.pivot[1],-cam.pivot[2],1]);
-    const MV=mul(Tv,mul(mul(Rx,Ry),Tp));
+    const MV=mul(Tv,mul(cam.rot,Tp));
     lastMV=MV;
     const MVP=mul(P,MV);
     const lines=edges&&nei;
@@ -1139,7 +1233,11 @@ async function boot(){
     }
     const dx=e.clientX-ox, dy=e.clientY-oy;
     if(p.pan){cam.px+=dx*cam.dist/900;cam.py-=dy*cam.dist/900}
-    else{cam.yaw+=dx*.008;cam.pitch=Math.max(-1.55,Math.min(1.55,cam.pitch+dy*.008))}
+    else{
+      // Pre-multiplied, so the turn is about the axes of the SCREEN and not
+      // about axes carried around by the model. No limit in either direction.
+      cam.rot=orthonormalise(mul(mul(rotX(dy*.008),rotY(dx*.008)),cam.rot));
+    }
     draw();
   });
   cv.addEventListener('wheel',e=>{e.preventDefault();touched=true;
@@ -1206,7 +1304,8 @@ boot();
 
 
 def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
-               edge_bias: float = 1.0e-5) -> str:
+               edge_bias: float = 1.0e-5, meta: dict | None = None) -> str:
+    meta = meta or {}
     stat_line = TEXT["stats"].format(
         parts=stats["parts"], faces=stats["faces"],
         triangles=f"{stats['triangles']:,}".replace(",", "\u00a0"),
@@ -1223,6 +1322,11 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__CRC__": str(crc),
         "__RAW__": str(raw),
         "__EDGE_BIAS__": repr(round(edge_bias, 8)),
+        "__M_GENERATOR__": html.escape(f"step2html {tool_version()}"),
+        "__M_VERSION__": html.escape(f"step2html {tool_version()}"),
+        "__M_SOURCE__": html.escape(meta.get("source", "")),
+        "__M_MESH__": html.escape(meta.get("mesh", "")),
+        "__M_MADE__": html.escape(meta.get("made", "")),
         "__L_PROJECTION__": html.escape(TEXT["projection"]),
         "__L_PERSPECTIVE__": html.escape(TEXT["perspective"]),
         "__L_ORTHOGRAPHIC__": html.escape(TEXT["orthographic"]),
@@ -1246,6 +1350,9 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_K_RESET__": html.escape(TEXT["k_reset"]),
         "__L_V_RESET__": html.escape(TEXT["v_reset"]),
         "__L_CLOSE__": html.escape(TEXT["close"]),
+        "__L_ABOUT_SOURCE__": html.escape(TEXT["about_source"]),
+        "__L_ABOUT_MESH__": html.escape(TEXT["about_mesh"]),
+        "__L_ABOUT_MADE__": html.escape(TEXT["about_made"]),
         "__DATA__": data,          # base64 cannot contain < or &
     }
     page = PAGE
@@ -1406,7 +1513,15 @@ def convert(opts: Options, log=None, progress=None) -> Report:
         data, crc, raw = pack(pos, nrm, col, idx, epos, eidx)
 
         phase(4, n, planned)
-        page = build_page(title, st, data, crc, raw)
+        # Each build stamps ITS OWN mesh, so whichever one is kept describes
+        # itself rather than something the search tried on the way.
+        page = build_page(title, st, data, crc, raw, meta={
+            "source": step.name,
+            "mesh": f"{lin:.4g} mm / {deg:.3g}°, "
+                    + f"{st['triangles']:,}".replace(",", " ")
+                    + " triangles",
+            "made": today(),
+        })
         return page, {"bytes": len(page.encode("utf-8")), "stats": st,
                       "left": left, "lin": lin, "deg": deg}
 

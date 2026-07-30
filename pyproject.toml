@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "step2html"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Turn a STEP assembly into one self-contained interactive HTML file"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,11 @@ step2html = "step_to_html:main"
 
 [project.gui-scripts]
 step2html-gui = "gui:main"
+
+[tool.setuptools.dynamic]
+# One place for the number, and it is the source file. Repeating it
+# here is how the two drift apart.
+version = { attr = "step_to_html.__version__" }
 
 [tool.setuptools]
 # Flat modules on purpose. step_to_html.py is the whole pipeline and can

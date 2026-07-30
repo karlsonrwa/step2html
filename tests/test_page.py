@@ -60,6 +60,18 @@ def main():
               "a click can move the centre of rotation")
         check('id="pivot"' in page and "showMarker" in page,
               "and the centre of rotation is shown where it landed")
+        check("cam.rot" in page and "cam.pitch" not in page,
+              "orientation is a matrix, so rotation has no stop in it")
+
+        # ---- the file says what made it ------------------------------- #
+        check(f'name="generator" content="step2html {S.__version__}'
+              in page, "the head carries a generator tag with the version")
+        check(f"step2html {S.__version__}" in page.split("<body")[1],
+              "and the version is visible at the foot of the help")
+        for row in (S.TEXT["about_source"], S.TEXT["about_mesh"],
+                    S.TEXT["about_made"]):
+            check(f"<dt>{row}</dt>" in page, f"the help states the {row.lower()}")
+        check("fixture.step" in page, "the source STEP is named")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()

@@ -235,6 +235,28 @@ which is the clearest possible statement of what it is.
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 
+## Versions
+
+Semantic, bumped by hand, and the number lives in `__version__` in
+`step_to_html.py` - `pyproject.toml` reads it from there, so there is one
+place to change and nothing to keep in step. A patch is a fix; a minor is a
+new capability or a change to what the generated file looks like.
+
+Every generated file states what made it, at the foot of its own help: the
+version, the short commit, the source STEP's name, the mesh actually used and
+the date. The commit matters more than it looks - between two files carrying
+the same version there can be a dozen commits of repairs, and the hash is
+what pins the source when one of them comes back with a question. A file
+built from an edited working tree says `+edits`, because it cannot be
+reproduced from the commit it names.
+
+There is also `<meta name="generator">` in the head, so every file made by a
+given version can be found with an ordinary search through a folder.
+
+This is separate from the **payload format version** in the `S3DH` header,
+which is at 2 and answers a different question: whether the viewer can read
+those bytes at all.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

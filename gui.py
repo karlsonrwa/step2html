@@ -64,7 +64,7 @@ class App:
         self._saved_state = "normal"
         self._last_normal_geometry = ""
 
-        root.title("step2html")
+        root.title(f"step2html {core.__version__}")
         root.minsize(620, 520)
 
         self.step_path = tk.StringVar()
