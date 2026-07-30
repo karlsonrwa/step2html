@@ -653,7 +653,13 @@ PAGE = r"""<!doctype html>
      whichever side the bar is on. In the side layout that puts it over the
      model, hence the panel-coloured chip - a bare glyph is unreadable
      against arbitrary geometry. */
-  #help{position:fixed;top:6px;right:8px;width:32px;height:32px;
+  /* z-index, or it is invisible in the side layout. #bar comes before #view
+     in the markup and neither carries a z-index, so the canvas paints over
+     anything of the bar's that reaches across it - and a fixed button in the
+     screen's corner does exactly that. getBoundingClientRect() reports the
+     button in its place either way, so the geometry looks right while
+     nothing is on screen: elementFromPoint is what tells the truth here. */
+  #help{position:fixed;top:6px;right:8px;z-index:5;width:32px;height:32px;
     background:var(--panel);
     display:grid;place-items:center;font:inherit;font-size:15px;font-weight:700;
     color:var(--fg);border:0;border-radius:4px;cursor:pointer}
@@ -693,8 +699,9 @@ PAGE = r"""<!doctype html>
     color:var(--accent);background:none;border:0;border-radius:4px;
     padding:7px 14px;cursor:pointer}
   dialog .close:hover{background:var(--hover)}
-  #err{position:fixed;inset:0;display:none;place-items:center;text-align:center;
-    background:var(--bg);padding:40px}
+  /* Above the button: when this is up, nothing else should be reachable. */
+  #err{position:fixed;inset:0;z-index:10;display:none;place-items:center;
+    text-align:center;background:var(--bg);padding:40px}
   #err p{max-width:32em;color:#c0392b;font-size:15px}
   :root:not(.light) #err p{color:#ffb4b4}
 </style></head><body>

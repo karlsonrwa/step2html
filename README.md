@@ -169,6 +169,15 @@ frames.
 *The observer watches the BODY, never the view* - the view is what this
 resizes, and an observer on it would answer its own change for ever.
 
+**The help button needs a stacking order.** It is fixed to the screen's top
+right corner, so in the side layout it reaches out across the canvas - and
+`#bar` comes before `#view` in the markup with neither carrying a `z-index`,
+so the canvas paints straight over it and the button is simply not there.
+Worth knowing how this hides: `getBoundingClientRect()` reports the button in
+its right place whether or not anything covers it, so a geometry check passes
+while nothing is on screen. `elementFromPoint` is what answers the question
+actually being asked.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 

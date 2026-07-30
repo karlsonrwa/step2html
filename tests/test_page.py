@@ -51,6 +51,11 @@ def main():
         check('value="system" checked' in page, "the theme follows the system")
         check("chooseLayout" in page and "body.side" in page,
               "the bar can stand on its end, and something chooses which")
+        # The button is fixed to the screen corner, so in the side layout it
+        # reaches across the canvas - and the canvas paints over it without
+        # this, because #bar comes first in the markup and neither carries a
+        # stacking order of its own.
+        check("z-index:5" in page, "the help button is lifted above the canvas")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()
