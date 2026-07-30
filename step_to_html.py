@@ -649,9 +649,14 @@ PAGE = r"""<!doctype html>
   #bar label:has(input:disabled):hover{background:none}
   /* Flat, in the material sense: no fill, no border, the surface only
      answers to hover and press. */
-  #help{position:absolute;top:6px;right:8px;width:32px;height:32px;
+  /* Fixed to the VIEWPORT, so it is in the top right corner of the screen
+     whichever side the bar is on. In the side layout that puts it over the
+     model, hence the panel-coloured chip - a bare glyph is unreadable
+     against arbitrary geometry. */
+  #help{position:fixed;top:6px;right:8px;width:32px;height:32px;
+    background:var(--panel);
     display:grid;place-items:center;font:inherit;font-size:15px;font-weight:700;
-    color:var(--fg);background:none;border:0;border-radius:4px;cursor:pointer}
+    color:var(--fg);border:0;border-radius:4px;cursor:pointer}
   #help:hover{background:var(--hover)}
   #help:active{background:var(--press)}
   #help:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -662,10 +667,17 @@ PAGE = r"""<!doctype html>
      letting it wrap into a second column, makes the side layout wide enough
      to lose every measurement it is put up against. */
   body.side #bar{flex-direction:column;flex-wrap:nowrap;align-items:flex-start;
-    gap:12px;padding:44px 14px 12px;overflow-y:auto;overflow-x:hidden;
+    gap:12px;padding:10px 14px 12px;overflow-y:auto;overflow-x:hidden;
     max-width:40%;border-bottom:0;border-right:1px solid var(--line)}
   body.side #bar .grp{flex-direction:column;flex-wrap:nowrap;
     align-items:flex-start;gap:1px}
+  /* The column is as wide as the widest CONTROL and no wider. width:0 keeps
+     the title and the statistics out of the intrinsic width the column is
+     sized from, min-width:100% then gives them the whole of it to wrap
+     inside. Without this the one-line statistics set the width and the
+     column comes out half as wide again. */
+  body.side #bar > .grp:first-child{width:0;min-width:100%;
+    overflow-wrap:anywhere}
   #view{flex:1 1 auto;min-height:0;min-width:0;position:relative}
   canvas{display:block;width:100%;height:100%;touch-action:none}
   dialog{color:var(--fg);background:var(--panel);border:0;border-radius:8px;
@@ -988,10 +1000,38 @@ async function boot(){
     const side=bar.offsetWidth;
     body.classList.toggle('side', oblong(W-side,H) < oblong(W,H-top));
   }
-  // Watching the BODY, not the view: the view is what this resizes, and an
-  // observer on it would answer its own change for ever.
-  new ResizeObserver(()=>{chooseLayout();if(!touched)cam=home();draw()})
-    .observe(body);
+  // Decided twice on purpose: once straight away, and once more in the next
+  // animation frame. The immediate pass keeps the page correct even where
+  // frames are not being produced at all - an embedded or offscreen view
+  // never runs a requestAnimationFrame callback, and a layout that waited
+  // for one would simply never happen. The second pass re-measures after the
+  // browser has settled, which is what catches a measurement taken mid-flight
+  // during a resize.
+  const settle=()=>{chooseLayout();if(!touched)cam=home();draw();};
+  let pending=false;
+  const relayout=()=>{
+    settle();
+    if(pending) return;
+    pending=true;
+    requestAnimationFrame(()=>{pending=false;settle();});
+  };
+  // Two ways in, on purpose. A window resize is what a rotation or a dragged
+  // window actually is; the observer catches the rest, such as the visible
+  // height changing under a phone's address bar without a resize event.
+  //
+  // The observer is KEPT IN A VARIABLE and referenced again below. Written as
+  // new ResizeObserver(...).observe(x) it has no strong reference left, and
+  // it stops firing whenever the collector decides to take it - which is what
+  // this did at first, silently: the layout was chosen once at load and never
+  // again, and every redraw that made it look alive was coming from somewhere
+  // else.
+  //
+  // The BODY is what is watched, never the view: the view is what this
+  // resizes, and an observer on it would answer its own change for ever.
+  addEventListener('resize',relayout);
+  const ro=new ResizeObserver(relayout);
+  ro.observe(body);
+  addEventListener('pagehide',()=>ro.disconnect());
   chooseLayout();
   applyTheme();                      // sets the clear colour and draws
 }

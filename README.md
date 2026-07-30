@@ -140,16 +140,34 @@ it costs height, down the side it costs width, and which of those hurts
 depends on the shape of the window - a phone held sideways makes an already
 wide view wider still. Both layouts are measured for real rather than guessed
 from an `(orientation: landscape)` media query, because the thickness of the
-bar is whatever its contents and wrapping make it. Measured: 780x360 keeps
-1.58 with the bar at the side against 2.70 with it on top, 360x780 keeps 1.82
-on top against 5.23 at the side.
+bar is whatever its contents and wrapping make it. Measured across eight
+window shapes, every one picks the better of the two: 780x360 keeps 1.75 at
+the side against 2.70 on top, 360x780 keeps 1.76 on top against 3.45 at the
+side, and 1024x768 comes out at 1.16.
 
-Two things about the side column are load-bearing. It must size to its widest
-label, and it must not wrap: stretch it or let it spill into a second column
-and it grows wide enough to lose every comparison it is put up against, so
-the side layout is never chosen and the whole mechanism looks broken. And the
-observer watches the BODY, never the view - the view is what this resizes,
-and an observer on it would answer its own change for ever.
+Four things here are load-bearing, and three of them were found by getting
+them wrong first.
+
+*The side column must size to its widest CONTROL and must not wrap.* Stretch
+it, or let it spill into a second column, and it grows wide enough to lose
+every comparison it is put up against - the side layout is then never chosen
+and the whole mechanism looks dead while computing perfectly. The title and
+the statistics are kept out of that width with `width:0; min-width:100%`, so
+they wrap inside the column the controls decided on.
+
+*The observer must be kept in a variable.* Written as
+`new ResizeObserver(...).observe(x)` nothing holds a strong reference to it,
+and it stops firing whenever the collector takes it. That is how this shipped
+at first: the layout was chosen once at load and never again, and every
+redraw that made it look alive was coming from somewhere else.
+
+*The decision runs twice - immediately, and again next frame.* Measuring only
+inside the event catches layout that has not settled; waiting only for an
+animation frame means it never happens at all in a view that is not producing
+frames.
+
+*The observer watches the BODY, never the view* - the view is what this
+resizes, and an observer on it would answer its own change for ever.
 
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
