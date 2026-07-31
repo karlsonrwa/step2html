@@ -1,65 +1,96 @@
-# step2html
+# step2html — STEP → один интерактивный HTML
 
-Turn a STEP assembly into **one self-contained interactive HTML file**.
+*[English](#english) · [Русский](#русский)*
+
+---
+
+<a name="english"></a>
+# English
+
+# ⚠️ Disclaimer
+
+Everything in this repository has been created through vibe coding with Claude.
+I am not a professional software developer. My background is in hardware engineering, and this project exists solely because I wanted to solve problems I encountered in my own workflow.
+I am not proficient in Python. Instead, I focus on clearly defining the behavior I expect from the tool and iteratively refining it until it does what I need.
+If you find a bug, an issue, or have an idea for improvement, please feel free to open an Issue or submit a Pull Request. I will do my best to investigate and fix it, but I cannot promise a quick response.
+Although this project was developed using an AI-assisted workflow, I make an effort to validate the generated code in real-world use and rely on this tool in my own projects.
+
+## Why this exists
+
+Sending a 3D model to somebody who has no CAD is awkward. The usual answer is a
+3D PDF, and it is a poor one: a 3D PDF is a PDF with a `/3D` annotation holding
+**U3D** or **PRC**, no other format goes in, and both are viewable only in
+desktop Adobe Acrobat — where 3D content is **off by default** — and not at all
+in browser PDF viewers, on iOS or on Android. U3D has been unmaintained since
+2010; the only free PRC writer is the one Asymptote carries, under LGPL-3.0;
+and FreeCAD's own 3D PDF export is still an unmerged draft pull request.
+
+**step2html** writes one self-contained HTML file instead. It opens by
+double-click in any current browser, on a phone as well as a desktop, with no
+Acrobat, no plugin, no internet, no server and nothing to install for whoever
+you send it to. It can also **report its own damage**, which a PDF cannot.
+
+It works on any STEP, not only on boards.
+
+## How it works
 
 ```bash
 python step_to_html.py board.step
 ```
 
-That writes `board.html` beside it. Double-click it: the model spins in any
-current browser, on a phone as well as a desktop. No Acrobat, no plugin, no
-internet, no server, and nothing to install for whoever you send it to.
-
-Or with a window around it:
+That writes `board.html` beside it. Or, with a window around it:
 
 ```bash
 python gui.py
 ```
 
-Every flag below has a control there, a log coloured the way Simple 3D colours
+Inside the file:
+
+* Geometry tessellated with OCCT, coloured **per face**, falling back to the
+  solid the face belongs to and then to the part — so a layer-coloured board
+  arrives layer-coloured.
+* Real B-rep edges, drawn the way a CAD viewer draws "shaded with edges".
+* A viewer written in plain WebGL2: **no three.js, no CDN, no fonts, nothing
+  external at all.**
+* The geometry as one raw-deflated, base64 block with its length and CRC32
+  beside it. The page checks both **before it draws** and says the file is
+  damaged rather than drawing something untrue.
+
+In the viewer: drag to turn, wheel or pinch to zoom, right button or two
+fingers to pan, **a single click moves the centre of rotation onto the point
+under it**, double click resets. Orthographic or perspective, edges on or off,
+and a theme that follows the system until told otherwise.
+
+## Installation
+
+Python 3.10 or newer, and one dependency:
+
+```bash
+pip install cadquery-ocp
+python tests/run_all.py
+```
+
+`cadquery-ocp` is OCCT. Nothing else is needed, and nothing else is used.
+
+## The GUI
+
+Every command line flag has a control, a log coloured the way Simple 3D colours
 its own, a progress bar and a Cancel button. The conversion runs in a **child
 process**: OpenCASCADE can die outright rather than raise, and a thread taking
 that hit would take the window with it, leaving nothing written anywhere. The
 window remembers its settings in `step2html_config.json` beside the script.
 
 The bar tracks the current build, phases taking their share of it by roughly
-what they cost, and moves per FACE inside the long ones - a real board is one
-part with 900 faces, and per-part progress would sit still through the whole
-of it. The label says which build it is, `build 3 of at most 6`; the bar
-starts again for each, which is honest, since with a size budget the number of
-builds is not knowable until the sizes come back.
+what they cost, and moves per FACE inside the long ones — a real board is one
+part with 900 faces, and per-part progress would sit still through the whole of
+it. The label says which build it is, `build 3 of at most 6`; the bar starts
+again for each, which is honest, since with a size budget the number of builds
+is not knowable until the sizes come back.
 
 The window opens centred on a first run and afterwards where it was left,
 maximized if it was closed maximized. A remembered position that is no longer
-reachable - the monitor it was on has been unplugged - is ignored and the
+reachable — the monitor it was on has been unplugged — is ignored and the
 window is centred instead, rather than opening somewhere invisible.
-
-It works on any STEP, not only on boards.
-
----
-
-## Why not a 3D PDF
-
-A 3D PDF is a PDF with a `/3D` annotation holding **U3D** or **PRC** — no
-other format goes in. Both are viewable only in desktop Adobe Acrobat, where
-3D content is **off by default**, and not at all in browser PDF viewers, on
-iOS or on Android. U3D has been unmaintained since 2010; the only free PRC
-writer is the one Asymptote carries, under LGPL-3.0, and FreeCAD's own 3D PDF
-export is still an unmerged draft PR.
-
-An HTML page opens everywhere and can be made to **report its own damage**,
-which a PDF cannot.
-
-## What is in the file
-
-* Board or model geometry, tessellated, coloured **per face** with the part
-  colour as the fallback — so a layer-coloured board arrives layer-coloured.
-* Real B-rep edges, drawn like a CAD viewer's "shaded with edges".
-* A viewer written in plain WebGL2: **no three.js, no CDN, no fonts, nothing
-  external at all.**
-* The geometry as one raw-deflated, base64 block with its length and CRC32
-  beside it. The page checks both **before it draws** and says the file is
-  damaged rather than drawing something untrue.
 
 ## Options
 
@@ -81,14 +112,14 @@ smaller than the `.step` it came from.
 
 Size against quality is close to a power law, so two measurements give the
 exponent for that particular model and the third build goes more or less
-straight to the budget - three or four builds, where a fixed ladder took
-seven. What is **not** predicted is the answer: every setting that gets kept
-has been built and weighed, and the fit only chooses where to look next. How
-well a payload deflates depends on the model, and no formula knows it.
+straight to the budget — three or four builds, where a fixed ladder took seven.
+What is **not** predicted is the answer: every setting that gets kept has been
+built and weighed, and the fit only chooses where to look next. How well a
+payload deflates depends on the model, and no formula knows it.
 
 Pass `--max-bytes none` for a single build.
 
-## How it is put together
+## Package layout
 
 | | |
 |---|---|
@@ -97,21 +128,31 @@ Pass `--max-bytes none` for a single build.
 | `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
 | `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
 
-The CLI and the window share one code path on purpose. A second
-implementation of the pipeline behind a GUI is how the two drift apart, and
+The CLI and the window share one code path on purpose. A second implementation
+of the pipeline behind a GUI is how the two drift apart, and
 `tests/test_gui.py` fails if a flag ever gains no control.
 
-## Requirements
+## Versions
 
-Python 3.10+ and [`cadquery-ocp`](https://pypi.org/project/cadquery-ocp/)
-(OCCT). Nothing else.
+Semantic, bumped by hand, and the number lives in `__version__` in
+`step_to_html.py` — `pyproject.toml` reads it from there, so there is one place
+to change and nothing to keep in step. A patch is a fix; a minor is a new
+capability or a change to what the generated file looks like.
 
-```bash
-pip install cadquery-ocp
-python tests/run_all.py
-```
+Every generated file states what made it, at the foot of its own help: the
+version, the short commit, the source STEP's name, the mesh actually used and
+the date. The commit matters more than it looks — between two files carrying
+the same version there can be a dozen commits of repairs, and the hash is what
+pins the source when one of them comes back with a question. A file built from
+an edited working tree says `+edits`, because it cannot be reproduced from the
+commit it names.
 
----
+There is also `<meta name="generator">` in the head, so every file made by a
+given version can be found with an ordinary search through a folder.
+
+This is separate from the **payload format version** in the `S3DH` header,
+which is at 2 and answers a different question: whether the viewer can read
+those bytes at all.
 
 ## Things already tried, and why it is the way it is
 
@@ -126,20 +167,20 @@ stored shape and *none* of them resolve after `.Moved()`, which paints the
 whole model one flat colour. The location travels alongside and is applied to
 the tessellated points instead.
 
-**A colour can sit on the SOLID rather than on its faces**, and the lookup
-has to go face, then the solid the face belongs to, then the part, then grey.
-XCAF hangs one colour on the solid and lets the faces inherit it, overriding
-only the ones that differ. A real board arrived with its body colour on the
-solid and 11 of its 63 faces carrying nothing of their own: those 11 fell past
-the missing step straight to the default grey, and that was **44% of the
-surface** - the whole board face, rendered light grey while the file plainly
+**A colour can sit on the SOLID rather than on its faces**, and the lookup has
+to go face, then the solid the face belongs to, then the part, then grey. XCAF
+hangs one colour on the solid and lets the faces inherit it, overriding only
+the ones that differ. A real board arrived with its body colour on the solid
+and 11 of its 63 faces carrying nothing of their own: those 11 fell past the
+missing step straight to the default grey, and that was **44 % of the
+surface** — the whole board face, rendered light grey while the file plainly
 contained `#1A5924`.
 
 Worth knowing how the fixture for this went wrong twice, because both are easy
 to repeat. Given the same colour as another part, the check passed on that
 other part's colour. Given a part with ONE solid in it, the part-level lookup
 finds the colour by itself and the check passes whether or not the solid is
-ever consulted. It takes two solids, two colours, and no face colours at all -
+ever consulted. It takes two solids, two colours, and no face colours at all —
 and the way to know is to break the fix on purpose and watch the test fail.
 
 **OCCT returns linear colour components.** Read raw, `#B87333` copper arrives
@@ -156,19 +197,19 @@ instead of 0 to 2π. Splitting them in two removes the seam and they mesh.
 
 **Patch one face at a time, on a copy.** `ShapeUpgrade_ShapeDivideClosed`
 turned loose on a whole solid cuts *every* closed face in it, including the
-sound cylindrical shafts of the pins, which then mesh as two halves that do
-not meet and carry an invented edge down each one. `tests/test_repair.py`
-exists to catch exactly that.
+sound cylindrical shafts of the pins, which then mesh as two halves that do not
+meet and carry an invented edge down each one. `tests/test_repair.py` exists to
+catch exactly that.
 
 **A patch need not be built at the model's deflection.** That is what breaks
 the deadlock, because refining the mesh makes some faces fail that were fine
-before — two 0.12 mm² planes fail at 0.0076 mm and build at 0.019. A face
-that will not build at the chosen setting is simply built coarser; on a plane
-that is not even a visible difference.
+before — two 0.12 mm² planes fail at 0.0076 mm and build at 0.019. A face that
+will not build at the chosen setting is simply built coarser; on a plane that
+is not even a visible difference.
 
 **Edge lines come from the triangulation, not from the curve.**
-`Poly_PolygonOnTriangulation` gives the indices of the mesh's own nodes along
-an edge, so a line segment *is* the triangle edge under it: same vertices,
+`Poly_PolygonOnTriangulation` gives the indices of the mesh's own nodes along an
+edge, so a line segment *is* the triangle edge under it: same vertices,
 identical depth, and `depthFunc(LEQUAL)` settles the tie.
 
 Sampling the true curve instead — the obvious thing, and what this did first —
@@ -178,64 +219,23 @@ line must stay thinner than a copper layer to avoid showing through it. On a
 real board those two demands crossed: 0.023 mm of deflection against 0.018 mm
 of copper, and **no value satisfies both**.
 
-**Nothing is done to the fills.** `glPolygonOffset` was tried on them twice
-and is wrong both ways round. With a slope factor it multiplies the polygon's
-maximum depth slope, which runs away for a face standing edge-on to the
-camera — a cylinder's silhouette, an oblique end cap — pushing it behind the
-far wall of its own solid, so a solid capacitor rendered as an open tube.
-Without the slope factor the constant nudge is far too small on exactly those
-steep faces, and the edge lines break into dashes along the rim of a board
-seen nearly edge-on. What is left is a fixed 1e-5 of clip depth applied to
-the *lines*, which answers nothing but the difference between how a line and
-a triangle are rasterised.
+**Nothing is done to the fills.** `glPolygonOffset` was tried on them twice and
+is wrong both ways round. With a slope factor it multiplies the polygon's
+maximum depth slope, which runs away for a face standing edge-on to the camera
+— a cylinder's silhouette, an oblique end cap — pushing it behind the far wall
+of its own solid, so a solid capacitor rendered as an open tube. Without the
+slope factor the constant nudge is far too small on exactly those steep faces,
+and the edge lines break into dashes along the rim of a board seen nearly
+edge-on. What is left is a fixed 1e-5 of clip depth applied to the *lines*,
+which answers nothing but the difference between how a line and a triangle are
+rasterised.
 
-**Page height comes off the viewport, not off a `height:100%` chain.** The
-chain collapses to zero wherever an ancestor has no height, and on a phone
-`100vh` counts the space under the collapsing address bar. `100dvh` is the
-visible height.
-
-**The bar goes wherever it leaves the squarest view behind.** Across the top
-it costs height, down the side it costs width, and which of those hurts
-depends on the shape of the window - a phone held sideways makes an already
-wide view wider still. Both layouts are measured for real rather than guessed
-from an `(orientation: landscape)` media query, because the thickness of the
-bar is whatever its contents and wrapping make it. Measured across eight
-window shapes, every one picks the better of the two: 780x360 keeps 1.75 at
-the side against 2.70 on top, 360x780 keeps 1.76 on top against 3.45 at the
-side, and 1024x768 comes out at 1.16.
-
-Four things here are load-bearing, and three of them were found by getting
-them wrong first.
-
-*The side column must size to its widest CONTROL and must not wrap.* Stretch
-it, or let it spill into a second column, and it grows wide enough to lose
-every comparison it is put up against - the side layout is then never chosen
-and the whole mechanism looks dead while computing perfectly. The title and
-the statistics are kept out of that width with `width:0; min-width:100%`, so
-they wrap inside the column the controls decided on.
-
-*The observer must be kept in a variable.* Written as
-`new ResizeObserver(...).observe(x)` nothing holds a strong reference to it,
-and it stops firing whenever the collector takes it. That is how this shipped
-at first: the layout was chosen once at load and never again, and every
-redraw that made it look alive was coming from somewhere else.
-
-*The decision runs twice - immediately, and again next frame.* Measuring only
-inside the event catches layout that has not settled; waiting only for an
-animation frame means it never happens at all in a view that is not producing
-frames.
-
-*The observer watches the BODY, never the view* - the view is what this
-resizes, and an observer on it would answer its own change for ever.
-
-**The help button needs a stacking order.** It is fixed to the screen's top
-right corner, so in the side layout it reaches out across the canvas - and
-`#bar` comes before `#view` in the markup with neither carrying a `z-index`,
-so the canvas paints straight over it and the button is simply not there.
-Worth knowing how this hides: `getBoundingClientRect()` reports the button in
-its right place whether or not anything covers it, so a geometry check passes
-while nothing is on screen. `elementFromPoint` is what answers the question
-actually being asked.
+**Orientation is a matrix, not a yaw and a pitch.** Angles have poles: pitch
+has to be stopped just short of straight down, or crossing it flips the horizon
+and reverses what a sideways drag does. That stop is something a drag runs
+into. A matrix turned about the axes of the screen has nowhere to run into.
+Gram-Schmidt once per drag, because a rotation multiplied by another a few
+thousand times in float32 stops being one.
 
 **A single click moves the centre of rotation onto the point under it**, the
 way a CAD viewer does, which is what makes a large board inspectable: turning
@@ -244,47 +244,72 @@ the triangles on the CPU, because the depth buffer of the default framebuffer
 is not readable in WebGL; at 150k triangles that is a few milliseconds, once
 per click.
 
-Moving the pivot must not move the picture, and the arithmetic for that is
-one line - put the camera translation exactly where the picked point already
-sits in view space - but it holds only in perspective. In an orthographic
-view the DISTANCE IS THE ZOOM, so changing it rescales everything. Hence
-`cam.oh`, the orthographic half-height, kept as a number of its own: the
-wheel moves it together with the distance, a click moves the distance alone.
-The pick ray has to be built from `cam.oh` as well, or it is cast at the
-wrong scale, picks the wrong triangle, and drags the clipping planes off with
-it.
+Moving the pivot must not move the picture, and the arithmetic for that is one
+line — put the camera translation exactly where the picked point already sits
+in view space — but it holds only in perspective. In an orthographic view the
+DISTANCE IS THE ZOOM, so changing it rescales everything. Hence `cam.oh`, the
+orthographic half-height, kept as a number of its own: the wheel moves it
+together with the distance, a click moves the distance alone. The pick ray has
+to be built from `cam.oh` as well, or it is cast at the wrong scale, picks the
+wrong triangle, and drags the clipping planes off with it.
 
-The point picked is **marked on screen** - a ring and crosshair that pulses
-where the click landed, stays up for the whole of a turn and fades after it.
-It is an HTML overlay whose position is projected once per frame rather than a
-second draw call, so CSS animates it for nothing. Being the centre of the
-turn, it is the one thing on screen that does NOT move while the view rotates,
-which is the clearest possible statement of what it is.
+The point picked is **marked on screen** — a ring and crosshair that pulses
+where the click landed, stays up for the whole of a turn and fades after it. It
+is an HTML overlay whose position is projected once per frame rather than a
+second draw call, so CSS animates it for nothing. Being the centre of the turn,
+it is the one thing on screen that does NOT move while the view rotates, which
+is the clearest possible statement of what it is.
+
+**The help button needs a stacking order.** It is fixed to the screen's top
+right corner, so in the side layout it reaches out across the canvas — and
+`#bar` comes before `#view` in the markup with neither carrying a `z-index`, so
+the canvas paints straight over it and the button is simply not there. Worth
+knowing how this hides: `getBoundingClientRect()` reports the button in its
+right place whether or not anything covers it, so a geometry check passes while
+nothing is on screen. `elementFromPoint` is what answers the question actually
+being asked.
+
+**Page height comes off the viewport, not off a `height:100%` chain.** The
+chain collapses to zero wherever an ancestor has no height, and on a phone
+`100vh` counts the space under the collapsing address bar. `100dvh` is the
+visible height.
+
+**The bar goes wherever it leaves the squarest view behind.** Across the top it
+costs height, down the side it costs width, and which of those hurts depends on
+the shape of the window — a phone held sideways makes an already wide view
+wider still. Both layouts are measured for real rather than guessed from an
+`(orientation: landscape)` media query, because the thickness of the bar is
+whatever its contents and wrapping make it. Measured across eight window
+shapes, every one picks the better of the two: 780×360 keeps 1.75 at the side
+against 2.70 on top, 360×780 keeps 1.76 on top against 3.45 at the side, and
+1024×768 comes out at 1.16.
+
+Four things there are load-bearing, and three of them were found by getting
+them wrong first.
+
+*The side column must size to its widest CONTROL and must not wrap.* Stretch
+it, or let it spill into a second column, and it grows wide enough to lose
+every comparison it is put up against — the side layout is then never chosen
+and the whole mechanism looks dead while computing perfectly. The title and the
+statistics are kept out of that width with `width:0; min-width:100%`, so they
+wrap inside the column the controls decided on.
+
+*The observer must be kept in a variable.* Written as
+`new ResizeObserver(...).observe(x)` nothing holds a strong reference to it, and
+it stops firing whenever the collector takes it. That is how this shipped at
+first: the layout was chosen once at load and never again, and every redraw
+that made it look alive was coming from somewhere else.
+
+*The decision runs twice — immediately, and again next frame.* Measuring only
+inside the event catches layout that has not settled; waiting only for an
+animation frame means it never happens at all in a view that is not producing
+frames.
+
+*The observer watches the BODY, never the view* — the view is what this
+resizes, and an observer on it would answer its own change for ever.
 
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
-
-## Versions
-
-Semantic, bumped by hand, and the number lives in `__version__` in
-`step_to_html.py` - `pyproject.toml` reads it from there, so there is one
-place to change and nothing to keep in step. A patch is a fix; a minor is a
-new capability or a change to what the generated file looks like.
-
-Every generated file states what made it, at the foot of its own help: the
-version, the short commit, the source STEP's name, the mesh actually used and
-the date. The commit matters more than it looks - between two files carrying
-the same version there can be a dozen commits of repairs, and the hash is
-what pins the source when one of them comes back with a question. A file
-built from an edited working tree says `+edits`, because it cannot be
-reproduced from the commit it names.
-
-There is also `<meta name="generator">` in the head, so every file made by a
-given version can be found with an ordinary search through a folder.
-
-This is separate from the **payload format version** in the `S3DH` header,
-which is at 2 and answers a different question: whether the viewer can read
-those bytes at all.
 
 ## Reviewed
 
@@ -292,24 +317,392 @@ A full pass over the code on 30 Jul 2026 found eight things, none of which a
 test had caught, and all of which are now fixed and mostly pinned:
 
 * The progress label said `build 3 of at most 8` while the search would never
-  spend more than 6 - two constants doing one job, one of them stale.
+  spend more than 6 — two constants doing one job, one of them stale.
 * `tests/test_gui.py` carried a check guarded by `hasattr` on a widget that
-  does not exist, so it passed without looking at anything. A check that
-  cannot fail is worse than no check: it reads as coverage.
+  does not exist, so it passed without looking at anything. A check that cannot
+  fail is worse than no check: it reads as coverage.
 * Choosing "No larger than" with the megabytes box left empty reached the
-  pipeline as `0`, which it reads as **no limit at all** - the opposite of
-  what the radio button says.
-* A bad number in a field raised `ValueError` and arrived as a traceback in
-  the log. They are `ConvertError` now, and say what was expected.
-* `os.startfile` raises `OSError` where nothing is registered for `.html`,
-  and that was thrown from inside the poll loop - which would have stopped
-  the loop and left the window stuck.
+  pipeline as `0`, which it reads as **no limit at all** — the opposite of what
+  the radio button says.
+* A bad number in a field raised `ValueError` and arrived as a traceback in the
+  log. They are `ConvertError` now, and say what was expected.
+* `os.startfile` raises `OSError` where nothing is registered for `.html`, and
+  that was thrown from inside the poll loop — which would have stopped the loop
+  and left the window stuck.
 * The window kept a `multiprocessing.Queue`, and its feeder thread, for every
   conversion it had ever run.
 * Enabling and disabling was written two ways, `configure(state=...)` and
   `state([...])`. Two ways of saying one thing eventually disagree.
 * A flag the code set and nothing ever read.
 
+## Known limitations
+
+* The result is a **mesh**, not B-rep. It is for looking at, not for measuring
+  from and not for machining.
+* No model tree, no section planes, no measurement. A 3D PDF in Acrobat has
+  those; this does not.
+* The page needs `DecompressionStream` and WebGL2: Chrome/Edge 80+, Firefox
+  113+, Safari 16.4+. Anything older says so instead of drawing nothing.
+* A size budget costs several builds and up to a minute. `--max-bytes none` is
+  one build.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+<a name="русский"></a>
+# Русский
+
+# ⚠️ Дисклеймер
+
+Весь код в этом репозитории создан с использованием вайбкодинга совместно с Claude.
+Я не являюсь профессиональным разработчиком программного обеспечения. По профессии я инженер-разработчик аппаратного обеспечения, и этот проект появился исключительно как попытка решить собственные практические задачи.
+Я не владею в совершенстве Python. Вместо этого я стараюсь максимально точно формулировать требования к инструменту и постепенно доводить его до нужного результата.
+Если вы обнаружите ошибку, неточность или захотите предложить улучшение — пожалуйста, создайте Issue или Pull Request. Я постараюсь разобраться и исправить проблему, однако не могу гарантировать, что это произойдет быстро.
+Несмотря на выбранный подход к разработке, я стараюсь проверять результаты работы инструмента на практике и использовать этот проект в реальных задачах.
+
+## Зачем это нужно
+
+Отправить трёхмерную модель тому, у кого нет CAD, неудобно. Обычный ответ —
+3D PDF, и ответ этот плохой: 3D PDF — это PDF с аннотацией `/3D`, внутри
+которой лежит **U3D** или **PRC**, третьего формата не бывает, и оба
+открываются только в настольном Adobe Acrobat, где 3D по умолчанию
+**выключено**, — и не открываются вовсе ни в браузерных просмотрщиках, ни на
+iOS, ни на Android. U3D заброшен с 2010 года; единственный свободный писатель
+PRC — тот, что несёт в себе Asymptote, под лицензией LGPL-3.0; а собственный
+экспорт 3D PDF во FreeCAD до сих пор незамёрженный черновой pull request.
+
+**step2html** вместо этого пишет один самодостаточный HTML-файл. Он
+открывается двойным щелчком в любом современном браузере, на телефоне не хуже
+чем на настольной машине, без Acrobat, без плагинов, без интернета, без сервера
+и без чего-либо, что нужно ставить тому, кому вы его отправляете. И он умеет
+**сообщать о собственном повреждении**, чего PDF не умеет.
+
+Работает с любым STEP, не только с платами.
+
+## Как это работает
+
+```bash
+python step_to_html.py board.step
+```
+
+Рядом появится `board.html`. Либо с окном:
+
+```bash
+python gui.py
+```
+
+Что внутри файла:
+
+* Геометрия, тесселированная через OCCT и покрашенная **по граням**, с
+  откатом на солид, которому грань принадлежит, а затем на деталь — поэтому
+  плата, покрашенная по слоям, такой и приезжает.
+* Настоящие рёбра B-rep, нарисованные так, как их рисует CAD в режиме «с
+  рёбрами».
+* Просмотрщик на голом WebGL2: **ни three.js, ни CDN, ни шрифтов, ничего
+  внешнего вообще.**
+* Геометрия одним сжатым deflate блоком в base64, рядом с ним его длина и
+  CRC32. Страница проверяет и то и другое **до отрисовки** и сообщает о
+  повреждении, вместо того чтобы нарисовать неправду.
+
+Управление: протяжка — поворот, колесо или щипок — масштаб, правая кнопка или
+два пальца — сдвиг, **одиночный щелчок переносит центр вращения на точку под
+курсором**, двойной щелчок — сброс. Проекция ортогональная или перспективная,
+рёбра включаются и выключаются, тема по умолчанию системная.
+
+## Установка
+
+Python 3.10 или новее и одна зависимость:
+
+```bash
+pip install cadquery-ocp
+python tests/run_all.py
+```
+
+`cadquery-ocp` — это OCCT. Больше ничего не требуется и ничего не используется.
+
+## Окно программы
+
+У каждого ключа командной строки есть свой контрол, лог расцвечен так же, как в
+Simple 3D, есть индикатор выполнения и кнопка отмены. Преобразование идёт в
+**дочернем процессе**: OpenCASCADE умеет умирать сразу, а не бросать исключение,
+и поток, принявший такой удар, унёс бы окно с собой, не оставив нигде ни
+строчки. Свои настройки окно держит в `step2html_config.json` рядом со скриптом.
+
+Полоса показывает текущую сборку, фазы делят её примерно по своей стоимости, а
+внутри длинных фаз она движется **по граням** — у настоящей платы это одна
+деталь на 900 граней, и подетальный прогресс простоял бы неподвижно всё это
+время. Подпись говорит, какая это сборка: `build 3 of at most 6`. Для каждой
+сборки полоса начинается заново, и это честно: при заданном бюджете размера
+число сборок неизвестно, пока не вернутся размеры.
+
+При первом запуске окно открывается по центру, дальше — там, где его закрыли, и
+развёрнутым, если закрыли развёрнутым. Запомненное положение, которое больше
+недостижимо (монитор отключили), игнорируется, и окно центрируется — вместо
+того чтобы открыться где-то невидимо.
+
+## Ключи
+
+```
+step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
+                     [--angle DEG] [--max-bytes N] [--no-repair] [--read-only]
+```
+
+| | |
+|---|---|
+| `--deflection` | допуск сетки в мм, либо `auto` (по умолчанию) — по размеру модели |
+| `--angle` | угловой допуск в градусах, по умолчанию 15 |
+| `--max-bytes` | бюджет размера, по умолчанию `auto` = размер самого STEP; `none` снимает |
+| `--no-repair` | не пытаться спасать грани, которые мешер оставил пустыми |
+| `--read-only` | поставить атрибут «только для чтения», чтобы блокнот отказался сохранять поверх |
+
+Бюджет по умолчанию мельчит сетку настолько, насколько это возможно, пока
+`.html` остаётся меньше `.step`, из которого он сделан.
+
+Размер против качества — почти степенная зависимость, поэтому двух замеров
+хватает, чтобы получить показатель степени для конкретной модели, и третья
+сборка идёт почти точно в бюджет: три-четыре сборки там, где фиксированная
+лестница тратила семь. Чего **не** предсказывается — так это ответ: всякая
+принятая настройка была собрана и взвешена, а подгонка лишь выбирает, куда
+смотреть дальше. Насколько хорошо сжимается нагрузка, зависит от модели, и
+никакая формула этого не знает.
+
+`--max-bytes none` — одна сборка.
+
+## Структура пакета
+
+| | |
+|---|---|
+| `step_to_html.py` | весь конвейер и шаблон страницы. `convert(Options, log, progress)` — единственная точка входа, `main()` — тонкая обёртка командной строки |
+| `gui.py` | окно. Собирает тот же самый `Options` и отдаёт его воркеру |
+| `worker.py` | `convert` в дочернем процессе. Не должен импортировать tkinter: на Windows дочерний процесс порождается заново и импортирует модуль с нуля |
+| `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
+
+Командная строка и окно намеренно идут одним кодом. Отдельная реализация
+конвейера под GUI — это ровно то, как две ветки расходятся, и
+`tests/test_gui.py` падает, если у какого-то ключа не окажется контрола.
+
+## Версии
+
+Семантические, поднимаются вручную, число живёт в `__version__` в
+`step_to_html.py` — `pyproject.toml` читает его оттуда, так что менять надо в
+одном месте и нечему рассинхронизироваться. Патч — исправление; minor — новая
+возможность или изменение того, как выглядит генерируемый файл.
+
+Каждый сгенерированный файл сообщает, чем он сделан, внизу собственной
+справки: версия, короткий хеш коммита, имя исходного STEP, реально
+использованная сетка и дата. Хеш важнее, чем кажется: между двумя файлами с
+одной и той же версией может лежать десяток коммитов правок, и именно хеш
+привязывает файл к исходнику, когда его присылают с вопросом. Файл, собранный
+из изменённого рабочего дерева, говорит `+edits`, потому что его нельзя
+воспроизвести из названного коммита.
+
+В шапке есть ещё `<meta name="generator">`, так что все файлы определённой
+версии находятся обычным поиском по папке.
+
+Это отдельно от **версии формата полезной нагрузки** в заголовке `S3DH`, которая
+сейчас равна 2 и отвечает на другой вопрос: сможет ли просмотрщик вообще
+прочитать эти байты.
+
+## Что уже пробовали, и почему сделано именно так
+
+Каждый пункт стоил как минимум одного раунда и будет сломан заново любым
+очевидным на вид упрощением.
+
+**Цвет находится по тождеству формы.** Не по метке: OCP связывает только
+перегрузку `GetColor`, принимающую `TopoDS_Shape`, а `GetColor_s` — это совсем
+другой вызов, «эта метка *и есть* цвет». И **никогда не перемещайте форму до
+того, как искать её цвет**: на тестовой плате все 69 граней находятся на
+хранимой форме и **ни одна** — после `.Moved()`, отчего вся модель красится в
+один плоский цвет. Положение едет рядом и применяется к точкам тесселяции.
+
+**Цвет может лежать на СОЛИДЕ, а не на его гранях**, и цепочка поиска обязана
+идти: грань, затем солид, которому грань принадлежит, затем деталь, затем
+серый. XCAF вешает один цвет на солид и позволяет граням его наследовать,
+переопределяя только те, что отличаются. Настоящая плата приехала с цветом тела
+на солиде, и 11 из её 63 граней не несли своего цвета вовсе: эти 11
+проваливались мимо недостающего шага прямо в серый по умолчанию, а это
+**44 % площади** — всё полотно платы, отрисованное светло-серым, при том что в
+файле недвусмысленно лежал `#1A5924`.
+
+Стоит знать, как фикстура к этому дважды оказалась негодной, потому что
+повторить обе ошибки легко. С тем же цветом, что и у другой детали, проверка
+проходила на чужом цвете. С деталью, внутри которой **один** солид, цвет
+находится уже на уровне детали, и проверка проходит независимо от того,
+спрашивают солид или нет. Нужны два солида, два цвета и ни одного цвета на
+гранях — а узнать это можно единственным способом: сломать исправление
+намеренно и посмотреть, упадёт ли тест.
+
+**OCCT возвращает линейные компоненты цвета.** Если читать как есть, медь
+`#B87333` приезжает как `(122, 44, 8)`. На выходе они кодируются в sRGB, а
+шейдер линеаризует их обратно перед освещением.
+
+**Некоторые грани не строятся ни при каких настройках.** На настоящем разъёме
+четыре конические фаски на кончиках выводов остались пустыми и при 0.04 мм, и
+при 0.01, и при 0.002 — причём более мелкая сетка делала **хуже**, а не лучше.
+Ни один параметр мешера (`MinSize`, `AdjustMinSize`, `AllowQualityDecrease`,
+`Relative`, `ForceFaceDeflection`) ничего не изменил, а `ShapeFix` нечего
+чинить, потому что `BRepCheck` считает эти грани валидными. Это замкнутые
+периодические грани, параметризованные от π до 3π вместо 0..2π. Разрез надвое
+убирает шов, и они строятся.
+
+**Чинить по одной грани и на копии.** `ShapeUpgrade_ShapeDivideClosed`,
+натравленный на солид целиком, режет **каждую** замкнутую грань в нём, включая
+исправные цилиндрические стержни выводов, которые после этого мешатся двумя
+половинами, не сходящимися друг с другом, и несут выдуманное ребро вдоль
+каждого. `tests/test_repair.py` существует ровно для того, чтобы это поймать.
+
+**Заплатку не обязательно строить с допуском модели.** Именно это развязывает
+тупик, потому что при измельчении сетки начинают отказывать грани, которые
+раньше строились: две плоскости по 0.12 мм² отказывают на 0.0076 мм и строятся
+на 0.019. Грань, которая не строится на выбранной настройке, просто строится
+грубее; на плоскости это даже не различимо.
+
+**Линии рёбер берутся из триангуляции, а не из кривой.**
+`Poly_PolygonOnTriangulation` даёт индексы собственных узлов сетки вдоль ребра,
+поэтому отрезок линии *и есть* ребро треугольника под ним: те же вершины, та же
+глубина, а `depthFunc(LEQUAL)` решает ничью.
+
+Сэмплирование истинной кривой — очевидное решение, и именно с него всё
+начиналось — кладёт гладкую линию поверх гранёной поверхности, и между ними до
+одного допуска по глубине. Чтобы это перекрыть, нужен сдвиг не меньше одного
+допуска, а линия при этом обязана быть тоньше медного слоя, иначе просвечивает
+сквозь него. На настоящей плате эти два требования пересеклись: допуск 0.023 мм
+против меди 0.018 мм, и **ни одно значение не удовлетворяет обоим**.
+
+**С заливками не делается ничего.** `glPolygonOffset` пробовали на них дважды, и
+он неверен в обе стороны. С множителем наклона он умножает максимальный наклон
+глубины полигона, а тот убегает в бесконечность у грани, стоящей ребром к
+камере — силуэт цилиндра, наклонный торец, — и отправляет её за дальнюю стенку
+собственного тела, отчего сплошной конденсатор отрисовывался открытой трубой.
+Без множителя постоянная поправка слишком мала ровно на этих косых гранях, и
+линии рёбер рассыпаются в пунктир вдоль торца платы, видимой почти ребром. От
+всего этого остался фиксированный сдвиг 1e-5 отсечённой глубины, применяемый к
+**линиям**, и отвечает он только за разницу в том, как растеризуются линия и
+треугольник.
+
+**Ориентация — матрица, а не пара углов.** У углов есть полюса: тангаж
+приходится останавливать чуть-чуть не доходя до отвеса, иначе при переходе
+через него переворачивается горизонт и движение вбок начинает работать
+наоборот. В этот упор и упирается протяжка. Матрице, которую поворачивают оси
+экрана, упираться некуда. Ортонормировка Грама-Шмидта раз за протяжку — потому
+что матрица поворота, умноженная сама на себя несколько тысяч раз в float32,
+перестаёт быть поворотом.
+
+**Одиночный щелчок переносит центр вращения на точку под курсором**, как это
+делает CAD, и именно это делает большую плату осматриваемой: поворот и зум
+после этого работают вокруг той детали, на которую смотрят. Луч бросается по
+треугольникам на процессоре, потому что буфер глубины основного фреймбуфера в
+WebGL читать нельзя; на 150 тысячах треугольников это несколько миллисекунд,
+один раз на щелчок.
+
+Перенос точки не должен двигать картинку, и арифметика для этого — одна строка:
+поставить перенос камеры ровно туда, где выбранная точка уже находится в
+системе координат вида. Но справедливо это только в перспективе. В
+ортогональной проекции **расстояние и есть масштаб**, поэтому его изменение
+перемасштабирует всё. Отсюда `cam.oh` — полувысота ортогонального окна,
+хранимая отдельным числом: колесо двигает её вместе с расстоянием, щелчок
+двигает только расстояние. Луч выбора тоже обязан строиться от `cam.oh`, иначе
+он бросается в другом масштабе, попадает не в тот треугольник и утаскивает за
+собой плоскости отсечения.
+
+Выбранная точка **отмечается на экране** — кольцо с перекрестием вспыхивает
+там, куда пришёлся щелчок, держится всю протяжку и гаснет после неё. Это
+HTML-накладка, чья позиция пересчитывается проекцией раз в кадр, а не второй
+вызов отрисовки, поэтому CSS анимирует её бесплатно. Будучи центром вращения,
+она — единственное на экране, что при повороте **не** двигается, и это самое
+внятное объяснение того, чем она является.
+
+**Кнопке справки нужен порядок наложения.** Она закреплена за правым верхним
+углом экрана, поэтому в боковой раскладке вылезает поверх холста — а `#bar`
+идёт в разметке до `#view`, и ни у того ни у другого нет `z-index`, так что
+холст рисуется сверху и кнопки просто нет. Стоит знать, как это прячется:
+`getBoundingClientRect()` сообщает положение кнопки независимо от того, накрыта
+она чем-нибудь или нет, поэтому проверка по геометрии проходит, когда на экране
+ничего нет. На заданный вопрос отвечает `elementFromPoint`.
+
+**Высота страницы берётся от области просмотра, а не от цепочки
+`height:100%`.** Цепочка схлопывается в ноль везде, где у предка нет высоты, а
+на телефоне `100vh` считает и место под сворачивающейся адресной строкой.
+`100dvh` — это видимая высота.
+
+**Панель ставится туда, после чего остаток ближе к квадрату.** Сверху она
+стоит высоты, сбоку — ширины, и что из этого больнее, зависит от формы окна:
+телефон, повёрнутый набок, делает и без того широкий вид ещё шире. Обе
+раскладки измеряются по-настоящему, а не угадываются по медиазапросу
+`(orientation: landscape)`, потому что толщина панели — это то, во что её
+сложило содержимое и переносы строк. Замерено на восьми формах окна, и во всех
+выбирается лучшая из двух: 780×360 даёт 1.75 сбоку против 2.70 сверху, 360×780
+даёт 1.76 сверху против 3.45 сбоку, а 1024×768 выходит 1.16.
+
+Четыре вещи там несущие, и три из них найдены тем, что сначала были сделаны
+неправильно.
+
+*Боковая колонка обязана быть шириной со свой самый широкий КОНТРОЛ и не
+переноситься.* Растяните её или дайте перетечь во вторую колонку — и она
+станет достаточно широкой, чтобы проигрывать любое сравнение: боковая
+раскладка тогда не выбирается никогда, и весь механизм выглядит мёртвым, считая
+при этом безупречно. Название и статистика выведены из этой ширины через
+`width:0; min-width:100%` и переносятся внутри колонки, которую задали
+контролы.
+
+*Наблюдатель обязан храниться в переменной.* Записанный как
+`new ResizeObserver(...).observe(x)` он не имеет ни одной сильной ссылки и
+перестаёт срабатывать, как только его заберёт сборщик мусора. Именно так это и
+работало сначала: раскладка выбиралась один раз при загрузке и больше никогда,
+а всякая перерисовка, из-за которой всё выглядело живым, приходила совсем из
+других мест.
+
+*Решение принимается дважды — сразу и ещё раз в следующем кадре.* Считать
+только внутри события — значит попадать на неустоявшуюся раскладку; ждать
+только кадра анимации — значит не дождаться вовсе там, где кадры не
+производятся.
+
+*Наблюдатель следит за `body`, а не за областью просмотра* — область и есть то,
+что этим меняется, и наблюдатель на ней отвечал бы на собственное изменение
+бесконечно.
+
+**Сенсору нужны два указателя.** Телефон не шлёт события колеса вовсе, поэтому
+без обработки двух пальцев масштаба на нём нет никакого.
+
+## Ревью
+
+Полный проход по коду 30 июля 2026 года нашёл восемь вещей, ни одна из которых
+не была поймана тестом; все исправлены и в основном закреплены:
+
+* Подпись прогресса говорила `build 3 of at most 8`, тогда как поиск никогда не
+  тратит больше 6 — две константы делали одну работу, и одна отстала.
+* В `tests/test_gui.py` была проверка, обёрнутая в `hasattr` по имени
+  несуществующего виджета, — она проходила, ничего не проверяя. Проверка,
+  которая не может упасть, хуже отсутствия проверки: она читается как покрытие.
+* Выбор «No larger than» с пустым полем мегабайт доходил до конвейера как `0`, а
+  это читается как **отсутствие ограничения** — противоположное тому, что
+  написано на радиокнопке.
+* Кривое число в поле давало `ValueError` и приезжало в лог трассировкой.
+  Теперь это `ConvertError` с указанием, чего ожидали.
+* `os.startfile` бросает `OSError` там, где на `.html` ничего не
+  зарегистрировано, и бросал он его **изнутри цикла опроса** — это остановило
+  бы цикл и оставило окно висеть.
+* Окно держало `multiprocessing.Queue` вместе с её служебным потоком за каждое
+  преобразование, что когда-либо запускало.
+* Включение и выключение контролов было написано двумя способами,
+  `configure(state=...)` и `state([...])`. Два способа сказать одно и то же
+  рано или поздно расходятся.
+* Флаг, который код ставил и никто никогда не читал.
+
+## Известные ограничения
+
+* Результат — **сетка**, а не B-rep. Он для того, чтобы смотреть, а не чтобы
+  мерить по нему и тем более обрабатывать.
+* Нет дерева модели, нет секущих плоскостей, нет измерений. У 3D PDF в Acrobat
+  это есть, здесь — нет.
+* Странице нужны `DecompressionStream` и WebGL2: Chrome/Edge 80+, Firefox 113+,
+  Safari 16.4+. Всё, что старше, скажет об этом, а не покажет пустоту.
+* Бюджет размера стоит нескольких сборок и до минуты времени.
+  `--max-bytes none` — одна сборка.
+
+## Лицензия
+
+MIT, см. [LICENSE](LICENSE).
