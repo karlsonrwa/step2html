@@ -104,8 +104,22 @@ def main():
         crc = int(re.search(r"const CRC=(\d+)", page).group(1))
         raw = int(re.search(r"RAW=(\d+)", page).group(1))
         body = zlib.decompress(base64.b64decode(b64), -15)
-        magic, ver, nv, ni, nev, nei = struct.unpack("<4sIIIII", body[:24])
+        magic, ver, nv, ni, nev, nei, nfa = struct.unpack("<4sIIIIII", body[:28])
         check(magic == b"S3DH", "the payload carries its magic", str(magic))
+        # The version and the layout are one thing, and this pins them
+        # together: a header edited without the reader following it wrote a
+        # version 2 file that the page then read as version 3, and the only
+        # symptom was a feature that quietly did nothing.
+        check(ver == 3, "the payload is the version the page expects", str(ver))
+        head = 4 + 6 * 4 + 4 * 4
+        check(len(body) == head + nv * 12 + nv * 3 + nv * 3 + ni * 4
+              + nev * 12 + nei * 4 + nfa * 4,
+              "and every array in it is exactly where the header says")
+        starts = struct.unpack(f"<{nfa}I", body[len(body) - nfa * 4:])
+        check(nfa > 0 and all(a <= b for a, b in zip(starts, starts[1:]))
+              and starts[-1] < ni // 3,
+              "the face table ascends and stays inside the triangles",
+              f"{nfa} faces, last starts at {starts[-1]} of {ni // 3}")
         check(len(body) == raw, "the recorded length is the real one",
               f"{len(body)} vs {raw}")
         check((zlib.crc32(body) & 0xFFFFFFFF) == crc, "the recorded CRC matches")

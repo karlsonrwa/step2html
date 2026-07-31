@@ -77,6 +77,14 @@ again. Measuring is a mode rather than a modifier because a plain click
 already means "turn about this point", and one gesture cannot honestly mean
 two things.
 
+While measuring, the face under the cursor lights up and the line follows the
+cursor with the distance updating as it goes. The highlight costs almost
+nothing to carry: the triangles of one face are contiguous, so the file needs
+a single start index per face — 13 kB raw and 4.6 kB deflated on a 3286-face
+board, against 299 kB for an id on every triangle. A ray cast per mouse move
+is 7.6 ms on a 300k-triangle board, throttled to one per 16 ms and only while
+measuring.
+
 **Save PNG** writes the current view out as a picture. The keys `1`–`8` pick
 the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
 the address bar always names the view on screen, so sending somebody a link to
@@ -172,7 +180,7 @@ There is also `<meta name="generator">` in the head, so every file made by a
 given version can be found with an ordinary search through a folder.
 
 This is separate from the **payload format version** in the `S3DH` header,
-which is at 2 and answers a different question: whether the viewer can read
+which is at 3 and answers a different question: whether the viewer can read
 those bytes at all.
 
 ## Things already tried, and why it is the way it is
@@ -462,6 +470,14 @@ python gui.py
 что обычный щелчок уже означает «вращать вокруг этой точки», а один жест не
 может честно значить два разных.
 
+Во время измерения грань под курсором подсвечивается, а линия тянется за
+курсором, и расстояние обновляется на ходу. Подсветка почти ничего не стоит в
+файле: треугольники одной грани лежат подряд, поэтому нужен один начальный
+индекс на грань — 13 КБ сырых и 4.6 КБ сжатых на плате с 3286 гранями, против
+299 КБ, если хранить идентификатор у каждого треугольника. Бросок луча на
+каждое движение мыши — 7.6 мс на 300 тысячах треугольников, не чаще раза в
+16 мс и только в режиме измерения.
+
 **Save PNG** сохраняет текущий вид картинкой. Клавиши `1`–`8` — восемь видов,
 `E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
 всегда называет вид, который на экране, так что отправить кому-то ссылку на
@@ -558,7 +574,7 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 версии находятся обычным поиском по папке.
 
 Это отдельно от **версии формата полезной нагрузки** в заголовке `S3DH`, которая
-сейчас равна 2 и отвечает на другой вопрос: сможет ли просмотрщик вообще
+сейчас равна 3 и отвечает на другой вопрос: сможет ли просмотрщик вообще
 прочитать эти байты.
 
 ## Что уже пробовали, и почему сделано именно так

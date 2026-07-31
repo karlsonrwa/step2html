@@ -70,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -476,6 +476,11 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
     col: list[int] = []
     idx: list[int] = []
     faces_seen = 0
+    # Where each face's triangles start, in triangles. They are emitted one
+    # face after another and never interleave, so a start index per face is
+    # the whole of what "which face is this triangle on" needs - 13 kB on a
+    # 3286-face board, against 299 kB for an id on every triangle.
+    face_starts: list[int] = []
     tick = tick or (lambda _d, _t, _w: None)
     # Counted up front so the bar means something: a real board is one part
     # with 900 faces, and per-part progress would sit still for the whole of
@@ -518,6 +523,10 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
             if tri is None:
                 continue
             faces_seen += 1
+            # Where this face's triangles begin. Recorded here, before any of
+            # them are emitted, because the whole point is that they are
+            # contiguous - one number per face instead of one per triangle.
+            face_starts.append(len(idx) // 3)
             # node -> face frame -> part frame -> world, composed once
             trsf = place.Multiplied(loc.Transformation())
             flipped = (face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED)
@@ -577,6 +586,7 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
         "edges": len(eidx) // 2,
         "edges_from_mesh": from_mesh,
         "edges_from_curve": from_curve,
+        "face_starts": face_starts,
     }
     return pos, nrm, col, idx, epos, eidx, stats
 
@@ -673,12 +683,13 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
 # payload
 # --------------------------------------------------------------------------- #
 
-def pack(pos, nrm, col, idx, epos=(), eidx=()):
+def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=()):
     """-> (base64 payload, crc32, uncompressed length)."""
     nv = len(pos) // 3
     ni = len(idx)
     nev = len(epos) // 3
     nei = len(eidx)
+    nfa = len(face_starts)
     cx = (min(pos[0::3]) + max(pos[0::3])) / 2
     cy = (min(pos[1::3]) + max(pos[1::3])) / 2
     cz = (min(pos[2::3]) + max(pos[2::3])) / 2
@@ -701,7 +712,9 @@ def pack(pos, nrm, col, idx, epos=(), eidx=()):
     hz = (max(pos[2::3]) - min(pos[2::3])) / 2
 
     body = bytearray()
-    body += struct.pack("<4sIIIIIffff", b"S3DH", 2, nv, ni, nev, nei,
+    # Version 3 adds nfa and the face table. Count the letters against the
+    # arguments when touching this: 4s, then SIX integers, then four floats.
+    body += struct.pack("<4sIIIIIIffff", b"S3DH", 3, nv, ni, nev, nei, nfa,
                         span, hx, hy, hz)
     body += struct.pack(f"<{nv * 3}f", *centred)
     body += bytes(max(0, min(255, int(round(v * 127)) + 128)) for v in nrm)
@@ -709,6 +722,7 @@ def pack(pos, nrm, col, idx, epos=(), eidx=()):
     body += struct.pack(f"<{ni}I", *idx)
     body += struct.pack(f"<{nev * 3}f", *ecentred)
     body += struct.pack(f"<{nei}I", *eidx)
+    body += struct.pack(f"<{nfa}I", *face_starts)
 
     crc = zlib.crc32(bytes(body)) & 0xFFFFFFFF
     comp = zlib.compressobj(9, zlib.DEFLATED, -15)   # raw deflate = deflate-raw
@@ -972,15 +986,16 @@ async function boot(){
   const dv=new DataView(bin.buffer);
   const nv=dv.getUint32(8,true), ni=dv.getUint32(12,true),
         nev=dv.getUint32(16,true), nei=dv.getUint32(20,true),
-        span=dv.getFloat32(24,true);
-  const HX=dv.getFloat32(28,true), HY=dv.getFloat32(32,true), HZ=dv.getFloat32(36,true);
-  let o=40;
+        nfa=dv.getUint32(24,true), span=dv.getFloat32(28,true);
+  const HX=dv.getFloat32(32,true), HY=dv.getFloat32(36,true), HZ=dv.getFloat32(40,true);
+  let o=44;
   const pos=new Float32Array(bin.buffer.slice(o,o+nv*12)); o+=nv*12;
   const nrmB=new Uint8Array(bin.buffer.slice(o,o+nv*3)); o+=nv*3;
   const colB=new Uint8Array(bin.buffer.slice(o,o+nv*3)); o+=nv*3;
   const idx=new Uint32Array(bin.buffer.slice(o,o+ni*4)); o+=ni*4;
   const epos=new Float32Array(bin.buffer.slice(o,o+nev*12)); o+=nev*12;
-  const eidx=new Uint32Array(bin.buffer.slice(o,o+nei*4));
+  const eidx=new Uint32Array(bin.buffer.slice(o,o+nei*4)); o+=nei*4;
+  const faceAt=new Uint32Array(bin.buffer.slice(o,o+nfa*4));
 
   const cv=document.getElementById('cv');
   const gl=cv.getContext('webgl2',{antialias:true});
@@ -994,6 +1009,7 @@ async function boot(){
     gl_Position=uMVP*vec4(aP,1.); }`;
   const fs=`#version 300 es
   precision highp float; in vec3 vN,vC,vP; out vec4 o;
+  uniform float uHi;                       // 1 while the hovered face is drawn
   void main(){
     vec3 n=normalize(vN); if(!gl_FrontFacing) n=-n;
     vec3 v=normalize(-vP);
@@ -1003,6 +1019,7 @@ async function boot(){
     float head=max(dot(n,v),0.)*.35;
     float rim=pow(1.-max(dot(n,v),0.),3.)*.10;
     vec3 c=base*(.22+key*.85+fill+head)+rim;
+    c=mix(c, vec3(.10,.42,.95)*(.30+key*.9+head), uHi);
     o=vec4(pow(clamp(c,0.,1.),vec3(1./2.2)),1.);}`;
   function sh(t,s){const x=gl.createShader(t);gl.shaderSource(x,s);gl.compileShader(x);
     if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(x);return x}
@@ -1057,7 +1074,7 @@ async function boot(){
   const EDGE_BIAS=__EDGE_BIAS__;
 
   const uMVP=gl.getUniformLocation(pr,'uMVP'),uMV=gl.getUniformLocation(pr,'uMV'),
-        uNM=gl.getUniformLocation(pr,'uNM');
+        uNM=gl.getUniformLocation(pr,'uNM'),uHi=gl.getUniformLocation(pr,'uHi');
   const FOV=Math.PI/6;                       // 30 degrees vertical
   // Orientation is a MATRIX, turned by the axes of the screen, not a pair of
   // yaw and pitch angles. Angles have poles: pitch has to be stopped just
@@ -1148,6 +1165,7 @@ async function boot(){
             dist:d, oh:d*Math.tan(FOV/2)};
   };
   let cam=home(), light=false, lastMV=null, lastP=null;
+  let hoverFace=-1, hoverPoint=null, lastTri=-1, lastHover=0, cursor=null;
   const marker=document.getElementById('pivot');
   let markerTimer=null;
   function showMarker(fadeAfter){
@@ -1223,7 +1241,21 @@ async function boot(){
     gl.uniformMatrix4fv(uMV,false,MV);
     gl.uniformMatrix4fv(uMVP,false,MVP);
     gl.uniformMatrix3fv(uNM,false,new Float32Array([MV[0],MV[1],MV[2],MV[4],MV[5],MV[6],MV[8],MV[9],MV[10]]));
+    gl.uniform1f(uHi,0);
     gl.drawElements(gl.TRIANGLES,ni,gl.UNSIGNED_INT,0);
+    // The hovered face, drawn a second time over itself in the highlight
+    // colour. Its triangles are one contiguous run, so this is one extra
+    // draw call over a range - LEQUAL because it is exactly the same
+    // geometry at exactly the same depth as what is already there.
+    if(hoverFace>=0 && nfa){
+      const from=faceAt[hoverFace]*3;
+      const to=(hoverFace+1<nfa ? faceAt[hoverFace+1]*3 : ni);
+      gl.depthFunc(gl.LEQUAL);
+      gl.uniform1f(uHi,1);
+      gl.drawElements(gl.TRIANGLES,to-from,gl.UNSIGNED_INT,from*4);
+      gl.uniform1f(uHi,0);
+      gl.depthFunc(gl.LESS);
+    }
     // Where the centre of rotation lands on screen this frame.
     const pv=cam.pivot;
     const pw=MVP[3]*pv[0]+MVP[7]*pv[1]+MVP[11]*pv[2]+MVP[15];
@@ -1310,7 +1342,7 @@ async function boot(){
     const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, 0] : [0,0,0];
     const dv = ortho ? [0,0,-1] : [nx*t*a, ny*t, -1];
     const o=toModel(ov,false), d=toModel(dv,true);
-    let best=Infinity, hit=null;
+    let best=Infinity, hit=null, hitTri=-1;
     for(let i=0;i<ni;i+=3){
       const ia=idx[i]*3, ib=idx[i+1]*3, ic=idx[i+2]*3;
       const e1x=pos[ib]-pos[ia], e1y=pos[ib+1]-pos[ia+1], e1z=pos[ib+2]-pos[ia+2];
@@ -1326,11 +1358,22 @@ async function boot(){
       const v=(d[0]*qx+d[1]*qy+d[2]*qz)*inv;
       if(v<0||u+v>1) continue;
       const dist=(e2x*qx+e2y*qy+e2z*qz)*inv;
-      if(dist>1e-6 && dist<best){best=dist; hit=[o[0]+d[0]*dist,
-                                                o[1]+d[1]*dist,
-                                                o[2]+d[2]*dist];}
+      if(dist>1e-6 && dist<best){best=dist; hitTri=i/3;
+                                 hit=[o[0]+d[0]*dist,
+                                      o[1]+d[1]*dist,
+                                      o[2]+d[2]*dist];}
     }
+    lastTri=hitTri;
     return hit;
+  }
+  // Which face a triangle belongs to: the starts are ascending, so this is a
+  // binary search and not a scan - it runs on every mouse move.
+  function faceOfTriangle(tri){
+    if(tri<0||!nfa) return -1;
+    let lo=0, hi=nfa-1;
+    while(lo<hi){ const mid=(lo+hi+1)>>1;
+                  if(faceAt[mid]<=tri) lo=mid; else hi=mid-1; }
+    return lo;
   }
   function setPivot(p){
     // Move the centre of the turn WITHOUT moving the picture. The picked
@@ -1363,6 +1406,21 @@ async function boot(){
   });
   cv.addEventListener('pointercancel',release);
   cv.addEventListener('pointermove',e=>{
+    // Hovering, which is what feeds the highlight and the line that follows
+    // the cursor. Throttled by the clock rather than by an animation frame:
+    // a frame callback never arrives in a view that is not being composited,
+    // and this has to work there too.
+    if(measure.checked && !ptrs.size){
+      const now=performance.now();
+      if(now-lastHover>16){
+        lastHover=now;
+        hoverPoint=pick(e.clientX,e.clientY);
+        hoverFace=faceOfTriangle(hoverPoint?lastTri:-1);
+        cursor=[e.clientX,e.clientY];
+        draw();
+      }
+      return;
+    }
     const p=ptrs.get(e.pointerId); if(!p) return;
     const ox=p.x, oy=p.y; p.x=e.clientX; p.y=e.clientY;
     if(ptrs.size>=2){
@@ -1386,6 +1444,10 @@ async function boot(){
   cv.addEventListener('wheel',e=>{e.preventDefault();touched=true;
     setDist(cam.dist*Math.exp(e.deltaY*.0012)); draw()},{passive:false});
   cv.addEventListener('contextmenu',e=>e.preventDefault());
+  cv.addEventListener('pointerleave',()=>{
+    if(hoverFace<0 && !cursor) return;
+    hoverFace=-1; hoverPoint=null; cursor=null; draw();
+  });
   // ---- the view cube ------------------------------------------------- #
   const cube=document.getElementById('cube'),
         menu=document.getElementById('views'),
@@ -1427,7 +1489,7 @@ async function boot(){
   let marks=[];
   measure.addEventListener('change',()=>{
     view.classList.toggle('measuring',measure.checked);
-    marks=[]; paintMeasure();
+    marks=[]; hoverFace=-1; hoverPoint=null; cursor=null; draw();
   });
   function toScreen(p){
     if(!lastP||!lastMV) return null;
@@ -1441,22 +1503,33 @@ async function boot(){
     return [(cx/cw*.5+.5)*cv.clientWidth, (.5-cy/cw*.5)*cv.clientHeight];
   }
   function paintMeasure(){
-    const a=marks[0]&&toScreen(marks[0]), b=marks[1]&&toScreen(marks[1]);
+    // With one point placed, the second end of the line is wherever the
+    // cursor is: the point under it if there is one, and failing that the
+    // cursor's own position on screen - with no number, because there is
+    // nothing to measure to.
+    const live = marks.length===1 && measure.checked
+                 ? (hoverPoint || null) : null;
+    const ends = live ? [marks[0], live] : marks;
+    const a=ends[0]&&toScreen(ends[0]), b=ends[1]&&toScreen(ends[1]);
+    const loose = marks.length===1 && measure.checked && !live && cursor
+                  ? [cursor[0]-cv.getBoundingClientRect().left,
+                     cursor[1]-cv.getBoundingClientRect().top] : null;
     mline.classList.toggle('on', !!a);
     mlabel.classList.toggle('on', !!(a&&b));
     if(!a) return;
+    const far = b || loose;
     const [c1,c2]=mline.querySelectorAll('circle'), ln=mline.querySelector('line');
     c1.setAttribute('cx',a[0]); c1.setAttribute('cy',a[1]);
-    c2.setAttribute('cx',(b||a)[0]); c2.setAttribute('cy',(b||a)[1]);
+    c2.setAttribute('cx',(far||a)[0]); c2.setAttribute('cy',(far||a)[1]);
     c2.style.display=b?'':'none';
     ln.setAttribute('x1',a[0]); ln.setAttribute('y1',a[1]);
-    ln.setAttribute('x2',(b||a)[0]); ln.setAttribute('y2',(b||a)[1]);
-    ln.style.display=b?'':'none';
+    ln.setAttribute('x2',(far||a)[0]); ln.setAttribute('y2',(far||a)[1]);
+    ln.style.display=far?'':'none';
     if(!b) return;
     // Measured in MODEL space, so the number is millimetres and owes nothing
     // to the projection it happens to be looked at through.
-    const dx=marks[1][0]-marks[0][0], dy=marks[1][1]-marks[0][1],
-          dz=marks[1][2]-marks[0][2];
+    const dx=ends[1][0]-ends[0][0], dy=ends[1][1]-ends[0][1],
+          dz=ends[1][2]-ends[0][2];
     // Each delta named and signed: "71.35" alone says neither which axis it
     // is on nor which way it points, and both matter when the question is
     // whether something clears something else.
@@ -1825,7 +1898,8 @@ def convert(opts: Options, log=None, progress=None) -> Report:
             raise ConvertError(f"{step.name} tessellated to nothing - no faces?")
 
         phase(3, n, planned)
-        data, crc, raw = pack(pos, nrm, col, idx, epos, eidx)
+        data, crc, raw = pack(pos, nrm, col, idx, epos, eidx,
+                              st.get("face_starts", ()))
 
         phase(4, n, planned)
         # Each build stamps ITS OWN mesh, so whichever one is kept describes
