@@ -88,6 +88,19 @@ well a payload deflates depends on the model, and no formula knows it.
 
 Pass `--max-bytes none` for a single build.
 
+## How it is put together
+
+| | |
+|---|---|
+| `step_to_html.py` | the whole pipeline, and the page template. `convert(Options, log, progress)` is the one entry point; `main()` is a thin CLI over it |
+| `gui.py` | the window. Builds the same `Options` and hands it to the worker |
+| `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
+| `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
+
+The CLI and the window share one code path on purpose. A second
+implementation of the pipeline behind a GUI is how the two drift apart, and
+`tests/test_gui.py` fails if a flag ever gains no control.
+
 ## Requirements
 
 Python 3.10+ and [`cadquery-ocp`](https://pypi.org/project/cadquery-ocp/)
@@ -256,6 +269,30 @@ given version can be found with an ordinary search through a folder.
 This is separate from the **payload format version** in the `S3DH` header,
 which is at 2 and answers a different question: whether the viewer can read
 those bytes at all.
+
+## Reviewed
+
+A full pass over the code on 30 Jul 2026 found eight things, none of which a
+test had caught, and all of which are now fixed and mostly pinned:
+
+* The progress label said `build 3 of at most 8` while the search would never
+  spend more than 6 - two constants doing one job, one of them stale.
+* `tests/test_gui.py` carried a check guarded by `hasattr` on a widget that
+  does not exist, so it passed without looking at anything. A check that
+  cannot fail is worse than no check: it reads as coverage.
+* Choosing "No larger than" with the megabytes box left empty reached the
+  pipeline as `0`, which it reads as **no limit at all** - the opposite of
+  what the radio button says.
+* A bad number in a field raised `ValueError` and arrived as a traceback in
+  the log. They are `ConvertError` now, and say what was expected.
+* `os.startfile` raises `OSError` where nothing is registered for `.html`,
+  and that was thrown from inside the poll loop - which would have stopped
+  the loop and left the window stuck.
+* The window kept a `multiprocessing.Queue`, and its feeder thread, for every
+  conversion it had ever run.
+* Enabling and disabling was written two ways, `configure(state=...)` and
+  `state([...])`. Two ways of saying one thing eventually disagree.
+* A flag the code set and nothing ever read.
 
 ## Licence
 

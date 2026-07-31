@@ -59,7 +59,6 @@ class App:
         self.root = root
         self.proc = None
         self.channel = None
-        self._polling = False
         self._saved_geometry = ""
         self._saved_state = "normal"
         self._last_normal_geometry = ""
@@ -186,10 +185,13 @@ class App:
             self.log_view.tag_configure(name, foreground=colour)
 
     def _sync_enabled(self) -> None:
-        self.deflection_entry.configure(
-            state="disabled" if self.auto_deflection.get() else "normal")
-        self.budget_entry.configure(
-            state="normal" if self.budget_mode.get() == "fixed" else "disabled")
+        """State FLAGS, the same mechanism _busy uses. The "state" option is a
+        second way of saying it, and two ways of saying one thing eventually
+        disagree."""
+        self.deflection_entry.state(
+            ["disabled"] if self.auto_deflection.get() else ["!disabled"])
+        self.budget_entry.state(
+            ["!disabled"] if self.budget_mode.get() == "fixed" else ["disabled"])
 
     # ---------------------------------------------------------------- pickers
 
@@ -265,8 +267,12 @@ class App:
         elif self.budget_mode.get() == "none":
             budget = "none"
         else:
-            megabytes = float(self.budget_mb.get() or 0)
-            budget = str(int(megabytes * 1024 * 1024))
+            typed = self.budget_mb.get().strip()
+            if not typed:
+                # Empty would reach convert() as "0", which it reads as no
+                # limit at all - the opposite of what the radio button says.
+                raise ValueError("a size in MB is needed for 'No larger than'")
+            budget = str(int(float(typed) * 1024 * 1024))
         return core.Options(
             step=self.step_path.get().strip(),
             out=self.out_path.get().strip(),
@@ -308,12 +314,9 @@ class App:
         self._finish("Cancelled")
 
     def _poll(self) -> None:
-        self._polling = True
         self.pump()
         if self.proc is not None:
             self.root.after(80, self._poll)
-        else:
-            self._polling = False
 
     def pump(self) -> None:
         """Drain the channel once. Split out so a test can step the machine
@@ -373,12 +376,26 @@ class App:
             os.startfile(str(path))          # Windows only, and the right call
         except AttributeError:
             webbrowser.open(path.as_uri())   # everywhere else
+        except OSError:
+            # No program registered for .html. Nothing to do about it here,
+            # and it must not escape: this runs inside the poll loop, and an
+            # exception there stops the loop and leaves the window stuck.
+            webbrowser.open(path.as_uri())
 
     def _finish(self, message: str) -> None:
         if self.proc is not None:
             if self.proc.is_alive():
                 self.proc.terminate()
             self.proc = None
+        # Closed, not merely dropped: a Queue carries a feeder thread, and a
+        # window that has run a dozen conversions should not be holding a
+        # dozen of them.
+        if self.channel is not None:
+            try:
+                self.channel.close()
+                self.channel.cancel_join_thread()
+            except Exception:
+                pass
         self.channel = None
         self.status.set(message)
         self._busy(False)

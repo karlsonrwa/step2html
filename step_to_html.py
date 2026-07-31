@@ -1413,7 +1413,7 @@ PHASES = ("meshing", "tessellating", "edges", "compressing", "writing the page")
 # rate instead of sitting at 25% through the longest part of the job.
 WEIGHTS = (0.42, 0.30, 0.16, 0.08, 0.04)
 SPAN = 1000                      # the bar's resolution, in steps
-LIMIT = 8                        # most builds the search may spend
+MAX_BUILDS = 6                   # most builds the search may spend
 
 
 def convert(opts: Options, log=None, progress=None) -> Report:
@@ -1458,17 +1458,27 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     log(f"{len(parts)} part(s)")
 
     base_angle = opts.angle
-    base_linear = (auto_deflection(parts)
-                   if str(opts.deflection).strip().lower() == "auto"
-                   else float(opts.deflection))
+    try:
+        base_linear = (auto_deflection(parts)
+                       if str(opts.deflection).strip().lower() == "auto"
+                       else float(opts.deflection))
+    except ValueError:
+        raise ConvertError(f"Deflection must be a number in mm, or 'auto', "
+                           f"not {opts.deflection!r}")
 
     budget = None
     want = str(opts.max_bytes).strip().lower()
     if want == "auto":
         budget = step.stat().st_size
     elif want not in ("none", "off", "", "0"):
-        budget = int(float(opts.max_bytes))
-    planned = LIMIT if budget else 1
+        try:
+            budget = int(float(opts.max_bytes))
+        except ValueError:
+            raise ConvertError(f"The size budget must be a number of bytes, "
+                               f"'auto' or 'none', not {opts.max_bytes!r}")
+        if budget <= 0:
+            raise ConvertError(f"A size budget of {budget} bytes cannot be met")
+    planned = MAX_BUILDS if budget else 1
     if budget:
         log(f"Size budget {budget:,} bytes; refining while it fits")
 
@@ -1545,7 +1555,6 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     # 0.12 mm2 at 0.0076, and succeeds again finer still. A sample that opens
     # one still tells us about size, so it is kept for the fit and refused as
     # an answer.
-    MAX_BUILDS = 6
     TARGET = 0.97               # aim just under the budget, not exactly at it
     CLOSE_ENOUGH = 0.94         # within this share of it, stop spending builds
 

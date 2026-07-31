@@ -139,9 +139,27 @@ def main():
         check("error" in tags_in(app), "a missing file is logged as an error")
         check("disabled" not in app.generate_button.state(),
               "Generate comes back after a failure")
-        check("disabled" not in app.step_path_entry.state()
-              if hasattr(app, "step_path_entry") else True,
-              "the fields are editable again")
+        # This used to name a widget that does not exist, guarded by hasattr,
+        # so it passed without ever looking at anything. Ask the same list
+        # _busy acts on instead.
+        stuck = {str(c) for c in app._toggleable() if "disabled" in c.state()}
+        # The only two that may still be grey are the ones a setting greys:
+        # the deflection box under "auto", and the size box unless the budget
+        # is "No larger than".
+        conditional = {str(app.deflection_entry), str(app.budget_entry)}
+        check(stuck <= conditional, "the fields are editable again",
+              f"unexpectedly disabled: {sorted(stuck - conditional)}")
+
+        # An empty megabyte box with "No larger than" chosen must be refused,
+        # not quietly turned into no limit at all.
+        app.budget_mode.set("fixed"); app.budget_mb.set("")
+        refused = False
+        try:
+            app.options()
+        except ValueError:
+            refused = True
+        check(refused, "an empty size budget is refused rather than ignored")
+        app.budget_mode.set("none")
 
         # ---- settings survive a restart ------------------------------- #
         app.angle.set("7.5"); app.budget_mode.set("fixed"); app.budget_mb.set("3")
