@@ -42,6 +42,7 @@ try:
     from OCP.BRepAdaptor import BRepAdaptor_Curve
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.GCPnts import GCPnts_TangentialDeflection
+    from OCP.GeomAbs import GeomAbs_CurveType
     from OCP.IFSelect import IFSelect_ReturnStatus
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
@@ -70,7 +71,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -575,7 +576,7 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
         else:
             nrm[i + 2] = 1.0
 
-    epos, eidx, from_mesh, from_curve = collect_edges(
+    epos, eidx, from_mesh, from_curve, circles = collect_edges(
         parts, linear, angular, tick=tick, total=total_faces)
 
     stats = {
@@ -587,6 +588,7 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
         "edges_from_mesh": from_mesh,
         "edges_from_curve": from_curve,
         "face_starts": face_starts,
+        "circles": circles,
     }
     return pos, nrm, col, idx, epos, eidx, stats
 
@@ -620,6 +622,44 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
     from_mesh = from_curve = 0
     tick = tick or (lambda _d, _t, _w: None)
     done = 0
+    # Circles, for snapping a measurement to a centre. Kept here rather than
+    # in a pass of their own because this is already the one walk over every
+    # edge of every part, with the placement to hand.
+    circles: list[tuple[float, ...]] = []
+    circle_keys: set[tuple] = set()
+
+    def note_circle(edge, place):
+        """A circular edge -> centre, axis and radius in world coordinates.
+
+        Measured, not assumed: BRepAdaptor_Curve.Circle() comes back with the
+        EDGE's own location already applied - a cylinder built at the origin
+        and then moved reports its centres at the moved place - so only the
+        part's placement is left to apply.
+
+        One hole is one centre however its rim is cut up. A rim split into
+        arcs, or shared by two faces, would otherwise be several identical
+        entries, each of them another circle for the snap to scan.
+        """
+        try:
+            ad = BRepAdaptor_Curve(edge)
+            if ad.GetType() != GeomAbs_CurveType.GeomAbs_Circle:
+                return
+            circ = ad.Circle().Transformed(place)
+        except Exception:
+            return
+        c, d = circ.Location(), circ.Axis().Direction()
+        r = circ.Radius()
+        nx, ny, nz = d.X(), d.Y(), d.Z()
+        # A circle and the same circle seen from the other side are one thing,
+        # so the axis is given a fixed sense before it is compared.
+        if (nx, ny, nz) < (0.0, 0.0, 0.0):
+            nx, ny, nz = -nx, -ny, -nz
+        rec = (c.X(), c.Y(), c.Z(), nx, ny, nz, r)
+        key = tuple(round(v, 4) for v in rec)
+        if key in circle_keys:
+            return
+        circle_keys.add(key)
+        circles.append(rec)
 
     def emit(points):
         first = len(pos) // 3
@@ -648,6 +688,7 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
                     # An edge belongs to two faces; draw it once.
                     if seen.FindIndex(edge):
                         continue
+                    note_circle(edge, place)
 
                     poly = (BRep_Tool.PolygonOnTriangulation_s(edge, tri, floc)
                             if tri is not None else None)
@@ -676,20 +717,21 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
                     seen.Add(edge)
                     from_curve += 1
 
-    return pos, idx, from_mesh, from_curve
+    return pos, idx, from_mesh, from_curve, circles
 
 
 # --------------------------------------------------------------------------- #
 # payload
 # --------------------------------------------------------------------------- #
 
-def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=()):
+def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=(), circles=()):
     """-> (base64 payload, crc32, uncompressed length)."""
     nv = len(pos) // 3
     ni = len(idx)
     nev = len(epos) // 3
     nei = len(eidx)
     nfa = len(face_starts)
+    ncr = len(circles)
     cx = (min(pos[0::3]) + max(pos[0::3])) / 2
     cy = (min(pos[1::3]) + max(pos[1::3])) / 2
     cz = (min(pos[2::3]) + max(pos[2::3])) / 2
@@ -711,11 +753,18 @@ def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=()):
     hy = (max(pos[1::3]) - min(pos[1::3])) / 2
     hz = (max(pos[2::3]) - min(pos[2::3])) / 2
 
+    # Circle centres ride in the same centred frame as everything else; the
+    # axis is a direction and the radius a length, so neither moves.
+    flat_circles = []
+    for cxc, cyc, czc, nx, ny, nz, r in circles:
+        flat_circles.extend((cxc - cx, cyc - cy, czc - cz, nx, ny, nz, r))
+
     body = bytearray()
-    # Version 3 adds nfa and the face table. Count the letters against the
-    # arguments when touching this: 4s, then SIX integers, then four floats.
-    body += struct.pack("<4sIIIIIIffff", b"S3DH", 3, nv, ni, nev, nei, nfa,
-                        span, hx, hy, hz)
+    # Version 3 adds nfa and the face table; version 4 adds ncr and the
+    # circles. Count the letters against the arguments when touching this:
+    # 4s, then SEVEN integers, then four floats.
+    body += struct.pack("<4sIIIIIIIffff", b"S3DH", 4, nv, ni, nev, nei, nfa,
+                        ncr, span, hx, hy, hz)
     body += struct.pack(f"<{nv * 3}f", *centred)
     body += bytes(max(0, min(255, int(round(v * 127)) + 128)) for v in nrm)
     body += bytes(col)
@@ -723,6 +772,7 @@ def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=()):
     body += struct.pack(f"<{nev * 3}f", *ecentred)
     body += struct.pack(f"<{nei}I", *eidx)
     body += struct.pack(f"<{nfa}I", *face_starts)
+    body += struct.pack(f"<{ncr * 7}f", *flat_circles)
 
     crc = zlib.crc32(bytes(body)) & 0xFFFFFFFF
     comp = zlib.compressobj(9, zlib.DEFLATED, -15)   # raw deflate = deflate-raw
@@ -830,6 +880,15 @@ PAGE = r"""<!doctype html>
   #mline.on{display:block}
   #mline line.main{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
   #mline circle{fill:var(--accent)}
+  /* The rim the measurement has caught, and the centre it snapped to: a
+     hollow ring on the circle itself, so it is obvious WHICH hole the number
+     belongs to before the click rather than after it. */
+  #mline polyline.rim{fill:none;stroke:var(--accent);stroke-width:1.6;
+    opacity:.9}
+  #mline circle.snap{fill:none;stroke:var(--accent);stroke-width:1.5}
+  /* The thread from the reading back to what it reads. Thin and plain, so it
+     is not mistaken for one of the measured legs. */
+  #mline line.lead{stroke:var(--accent);stroke-width:1;opacity:.55}
   /* One colour per axis, and the same three everywhere: the triad in the
      corner and the stepped path of a measurement say the same thing. */
   .x{stroke:#e0483a;fill:#e0483a}
@@ -843,10 +902,14 @@ PAGE = r"""<!doctype html>
   #axes line{stroke-width:1.8;stroke-linecap:round}
   #axes text{font-size:11px;font-weight:600;stroke:none;text-anchor:middle;
     dominant-baseline:middle}
-  #mlabel{position:absolute;transform:translate(-50%,-50%);pointer-events:none;
+  /* Draggable, so it takes pointer events - which is why it is a sibling of
+     the canvas and not part of #mline, which takes none. It parks itself in
+     the corner furthest from the measurement; a drag pins it where it is
+     dropped until the measurement is cleared. */
+  #mlabel{position:absolute;transform:translate(-50%,-50%);cursor:move;
     display:none;padding:4px 8px;border-radius:4px;font-size:12px;
     line-height:1.35;text-align:center;white-space:pre;color:var(--strong);
-    background:var(--panel);border:1px solid var(--line)}
+    background:var(--panel);border:1px solid var(--line);touch-action:none}
   #mlabel.on{display:block}
   /* The centre of rotation, drawn as an overlay rather than as geometry: it
      is projected to a screen position once per frame, which is a great deal
@@ -933,7 +996,9 @@ PAGE = r"""<!doctype html>
 <div id="pivot"><i></i></div>
 <svg id="mline">
 <line class="ax x"/><line class="ax y"/><line class="ax z"/>
-<line class="main"/><circle r="3.5"/><circle r="3.5"/>
+<line class="lead"/><line class="main"/>
+<polyline class="rim"/><polyline class="rim"/><polyline class="rim"/>
+<circle r="3.5"/><circle r="3.5"/><circle class="snap" r="6"/>
 <text class="ax x"/><text class="ax y"/><text class="ax z"/></svg>
 <svg id="axes" viewBox="0 0 88 88">
 <line class="x"/><line class="y"/><line class="z"/>
@@ -1005,16 +1070,21 @@ async function boot(){
   const dv=new DataView(bin.buffer);
   const nv=dv.getUint32(8,true), ni=dv.getUint32(12,true),
         nev=dv.getUint32(16,true), nei=dv.getUint32(20,true),
-        nfa=dv.getUint32(24,true), span=dv.getFloat32(28,true);
-  const HX=dv.getFloat32(32,true), HY=dv.getFloat32(36,true), HZ=dv.getFloat32(40,true);
-  let o=44;
+        nfa=dv.getUint32(24,true), ncr=dv.getUint32(28,true),
+        span=dv.getFloat32(32,true);
+  const HX=dv.getFloat32(36,true), HY=dv.getFloat32(40,true), HZ=dv.getFloat32(44,true);
+  let o=48;
   const pos=new Float32Array(bin.buffer.slice(o,o+nv*12)); o+=nv*12;
   const nrmB=new Uint8Array(bin.buffer.slice(o,o+nv*3)); o+=nv*3;
   const colB=new Uint8Array(bin.buffer.slice(o,o+nv*3)); o+=nv*3;
   const idx=new Uint32Array(bin.buffer.slice(o,o+ni*4)); o+=ni*4;
   const epos=new Float32Array(bin.buffer.slice(o,o+nev*12)); o+=nev*12;
   const eidx=new Uint32Array(bin.buffer.slice(o,o+nei*4)); o+=nei*4;
-  const faceAt=new Uint32Array(bin.buffer.slice(o,o+nfa*4));
+  const faceAt=new Uint32Array(bin.buffer.slice(o,o+nfa*4)); o+=nfa*4;
+  // Seven floats each: centre, axis, radius. This is what a measurement snaps
+  // to - the centre of a hole or of a pin, which is the number that is
+  // actually wanted and the one that cannot be hit by eye.
+  const cir=new Float32Array(bin.buffer.slice(o,o+ncr*28));
 
   const cv=document.getElementById('cv');
   const gl=cv.getContext('webgl2',{antialias:true});
@@ -1419,11 +1489,17 @@ async function boot(){
     // and moving the pivot underneath it would be a surprise.
     if(p && !p.pan && ptrs.size===1 && Math.hypot(e.clientX-p.downX,
                                                   e.clientY-p.downY) < 4){
-      const target=pick(e.clientX,e.clientY);
+      const raw=pick(e.clientX,e.clientY);
+      // A click takes the centre it has caught, if it has caught one - and
+      // only while measuring, because the centre of a hole is a poor place to
+      // put the centre of the turn.
+      const caught=measure.checked?snapAt(raw):null;
+      const target=caught?caught.p:raw;
       if(measure.checked){
         // In measuring mode a click places a point and nothing else moves.
         // A third click starts a fresh measurement rather than adding to one.
-        if(target){ if(marks.length>=2) marks=[]; marks.push(target); draw(); }
+        if(target){ if(marks.length>=2){ marks=[]; markCir=[]; labelAt=null; }
+                    marks.push(target); markCir.push(caught); draw(); }
       }
       else if(target){ setPivot(target); draw(); showMarker(1200); }
       else showMarker(400);
@@ -1442,8 +1518,12 @@ async function boot(){
       const now=performance.now();
       if(now-lastHover>16){
         lastHover=now;
-        hoverPoint=pick(e.clientX,e.clientY);
-        hoverFace=faceOfTriangle(hoverPoint?lastTri:-1);
+        const raw=pick(e.clientX,e.clientY);
+        hoverFace=faceOfTriangle(raw?lastTri:-1);
+        // What the click would take: the centre of the rim it has caught, or
+        // failing that the point on the surface itself.
+        snapNow=snapAt(raw);
+        hoverPoint=snapNow?snapNow.p:raw;
         cursor=[e.clientX,e.clientY];
         draw();
       }
@@ -1473,8 +1553,8 @@ async function boot(){
     setDist(cam.dist*Math.exp(e.deltaY*.0012)); draw()},{passive:false});
   cv.addEventListener('contextmenu',e=>e.preventDefault());
   cv.addEventListener('pointerleave',()=>{
-    if(hoverFace<0 && !cursor) return;
-    hoverFace=-1; hoverPoint=null; cursor=null; draw();
+    if(hoverFace<0 && !cursor && !snapNow) return;
+    hoverFace=-1; hoverPoint=null; cursor=null; snapNow=null; draw();
   });
   // ---- which way is which -------------------------------------------- #
   const axesSvg=document.getElementById('axes');
@@ -1541,11 +1621,67 @@ async function boot(){
         mline=document.getElementById('mline'),
         mlabel=document.getElementById('mlabel'),
         view=document.getElementById('view');
-  let marks=[];
+  // markCir runs alongside marks: the circle each placed point was taken
+  // from, or null if it was taken off the surface itself.
+  let marks=[], markCir=[], snapNow=null, labelAt=null;
   measure.addEventListener('change',()=>{
     view.classList.toggle('measuring',measure.checked);
-    marks=[]; hoverFace=-1; hoverPoint=null; cursor=null; draw();
+    marks=[]; markCir=[]; hoverFace=-1; hoverPoint=null; cursor=null;
+    snapNow=null; labelAt=null; draw();
   });
+
+  // ---- snapping to a centre ------------------------------------------- #
+  // The circle is caught by its RIM, not by the wall of the hole: an arc has
+  // an exact centre, while a cylinder only gives an axis and the height along
+  // it would be wherever the cursor happened to be. The test is made against
+  // the VISIBLE point under the cursor, which is what keeps it from catching
+  // a hole on the far side of the board.
+  const SNAP_PX=14;
+  function pxSize(p){
+    // Model units per screen pixel, at the depth of the point in question.
+    const h=Math.max(1,cv.clientHeight);
+    if(ortho) return 2*cam.oh/h;
+    const vz=lastMV[2]*p[0]+lastMV[6]*p[1]+lastMV[10]*p[2]+lastMV[14];
+    return 2*Math.tan(FOV/2)*Math.max(1e-6,-vz)/h;
+  }
+  function snapAt(hit){
+    if(!ncr||!hit||!lastMV) return null;
+    const tol=SNAP_PX*pxSize(hit);
+    let bi=-1, bd=tol;
+    for(let i=0;i<ncr;i++){
+      const o=i*7;
+      const dx=hit[0]-cir[o], dy=hit[1]-cir[o+1], dz=hit[2]-cir[o+2];
+      const nx=cir[o+3], ny=cir[o+4], nz=cir[o+5];
+      const h=dx*nx+dy*ny+dz*nz;
+      if(Math.abs(h)>tol) continue;          // not in this circle's plane
+      const ix=dx-nx*h, iy=dy-ny*h, iz=dz-nz*h;
+      const off=Math.hypot(Math.hypot(ix,iy,iz)-cir[o+6],h);
+      if(off<bd){ bd=off; bi=i; }
+    }
+    if(bi<0) return null;
+    const o=bi*7;
+    return {p:[cir[o],cir[o+1],cir[o+2]], n:[cir[o+3],cir[o+4],cir[o+5]],
+            r:cir[o+6]};
+  }
+  // The caught rim, as a screen polyline. Sampled rather than drawn as an
+  // ellipse because a circle in perspective is only an ellipse when it is
+  // whole and unclipped, and this one is neither in general.
+  function rimPath(c){
+    const n=c.n;
+    const t=Math.abs(n[2])<.9?[0,0,1]:[1,0,0];
+    let ux=n[1]*t[2]-n[2]*t[1], uy=n[2]*t[0]-n[0]*t[2], uz=n[0]*t[1]-n[1]*t[0];
+    const m=Math.hypot(ux,uy,uz)||1; ux/=m; uy/=m; uz/=m;
+    const vx=n[1]*uz-n[2]*uy, vy=n[2]*ux-n[0]*uz, vz=n[0]*uy-n[1]*ux;
+    const out=[];
+    for(let k=0;k<=48;k++){
+      const a=k/48*6.283185307, ca=Math.cos(a)*c.r, sa=Math.sin(a)*c.r;
+      const s=toScreen([c.p[0]+ux*ca+vx*sa, c.p[1]+uy*ca+vy*sa,
+                        c.p[2]+uz*ca+vz*sa]);
+      if(!s) return '';
+      out.push(s[0].toFixed(1)+','+s[1].toFixed(1));
+    }
+    return out.join(' ');
+  }
   function toScreen(p){
     if(!lastP||!lastMV) return null;
     const x=lastMV[0]*p[0]+lastMV[4]*p[1]+lastMV[8]*p[2]+lastMV[12];
@@ -1569,14 +1705,42 @@ async function boot(){
     const loose = marks.length===1 && measure.checked && !live && cursor
                   ? [cursor[0]-cv.getBoundingClientRect().left,
                      cursor[1]-cv.getBoundingClientRect().top] : null;
-    mline.classList.toggle('on', !!a);
+    // The caught rim, shown whether or not a point has been placed: it is the
+    // answer to "what will this click take", given before the click. The
+    // other two belong to the points already placed, and stay up - so a
+    // finished measurement, and the picture saved of it, says plainly that it
+    // was taken centre to centre and not by eye.
+    const rims=mline.querySelectorAll('polyline.rim'),
+          rim=rims[0],
+          snapC=mline.querySelector('circle.snap'),
+          lead=mline.querySelector('line.lead');
+    const sp=snapNow?toScreen(snapNow.p):null;
+    const path=snapNow?rimPath(snapNow):'';
+    rim.setAttribute('points',path);
+    rim.style.display=path?'':'none';
+    for(let i=0;i<2;i++){
+      const held=markCir[i] && i<marks.length ? rimPath(markCir[i]) : '';
+      rims[i+1].setAttribute('points',held);
+      rims[i+1].style.display=held?'':'none';
+    }
+    if(sp){ snapC.setAttribute('cx',sp[0]); snapC.setAttribute('cy',sp[1]); }
+    snapC.style.display=sp?'':'none';
+    mline.classList.toggle('on', !!(a||sp));
     mlabel.classList.toggle('on', !!(a&&b));
-    if(!b) mline.querySelectorAll('line.ax,text.ax')
-             .forEach(e=>e.style.display='none');
-    if(!a) return;
+    if(!b){
+      mline.querySelectorAll('line.ax,text.ax')
+           .forEach(e=>e.style.display='none');
+      lead.style.display='none';
+    }
+    if(!a){
+      mline.querySelectorAll('line.main,circle:not(.snap)')
+           .forEach(e=>e.style.display='none');
+      return;
+    }
     const far = b || loose;
     const [c1,c2]=mline.querySelectorAll('circle'),
           ln=mline.querySelector('line.main');
+    c1.style.display='';
     c1.setAttribute('cx',a[0]); c1.setAttribute('cy',a[1]);
     c2.setAttribute('cx',(far||a)[0]); c2.setAttribute('cy',(far||a)[1]);
     c2.style.display=b?'':'none';
@@ -1598,8 +1762,6 @@ async function boot(){
     mlabel.textContent=`${Math.hypot(dx,dy,dz).toFixed(2)} mm
 `
                       +`${g('X',dx)}   ${g('Y',dy)}   ${g('Z',dz)}`;
-    mlabel.style.left=((a[0]+b[0])/2)+'px';
-    mlabel.style.top=((a[1]+b[1])/2-26)+'px';
 
     // The stepped path, the way a CAD viewer shows a distance in space: from
     // the first point along X, then along Y, then along Z to the second. Each
@@ -1623,7 +1785,79 @@ async function boot(){
       tags[i].setAttribute('text-anchor','middle');
       tags[i].textContent=Math.abs(deltas[i]).toFixed(2);
     }
+
+    // ---- where the reading goes --------------------------------------- #
+    // Into the corner of the view furthest from the measurement, with a
+    // thread back to the middle of the line. Sitting on that middle, which is
+    // where it used to sit, it covered the very thing being measured.
+    const W=cv.clientWidth, H=cv.clientHeight;
+    const lw=mlabel.offsetWidth||150, lh=mlabel.offsetHeight||38;
+    // Sampled ALONG the legs, not only at their ends: a corner far from every
+    // end can still sit squarely on top of a long leg.
+    const segs=[[a,b]];
+    for(let i=0;i<3;i++)
+      if(legs[i].style.display!=='none' && corners[i] && corners[i+1])
+        segs.push([corners[i],corners[i+1]]);
+    const pts=[];
+    for(const s of segs)
+      for(let k=0;k<=6;k++)
+        pts.push([s[0][0]+(s[1][0]-s[0][0])*k/6,
+                  s[0][1]+(s[1][1]-s[0][1])*k/6]);
+    // The two bottom corners are not free: the axis triad stands in one and
+    // the view cube in the other, so the label is parked clear of both.
+    const M=12;
+    const cands=[[M+lw/2,M+lh/2], [W-M-lw/2,M+lh/2],
+                 [M+lw/2,H-100-lh/2], [W-M-lw/2,H-58-lh/2]];
+    let best=cands[0], bestD=-1;
+    for(const c of cands){
+      let d=1e9;
+      for(const p of pts){
+        const ox=Math.max(Math.abs(p[0]-c[0])-lw/2,0),
+              oy=Math.max(Math.abs(p[1]-c[1])-lh/2,0);
+        d=Math.min(d,Math.hypot(ox,oy));
+      }
+      if(d>bestD){ bestD=d; best=c; }
+    }
+    const L=labelAt||best;
+    mlabel.style.left=L[0]+'px';
+    mlabel.style.top=L[1]+'px';
+    // The thread starts at the label's own border rather than at its centre,
+    // so it never crosses the text it comes from.
+    const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
+    const vx=mx-L[0], vy=my-L[1];
+    const t=Math.min(lw/2/(Math.abs(vx)||1e-6), lh/2/(Math.abs(vy)||1e-6));
+    const sx=L[0]+vx*t, sy=L[1]+vy*t;
+    const worthLead=Math.hypot(mx-sx,my-sy)>8 && t<1;
+    lead.style.display=worthLead?'':'none';
+    if(worthLead){
+      lead.setAttribute('x1',sx); lead.setAttribute('y1',sy);
+      lead.setAttribute('x2',mx); lead.setAttribute('y2',my);
+    }
   }
+  // Dragged where it is wanted, if the corner chosen for it is the wrong one.
+  // It holds that place until the measurement is cleared or replaced.
+  mlabel.addEventListener('pointerdown',e=>{
+    if(!mlabel.classList.contains('on')) return;
+    e.preventDefault(); e.stopPropagation();
+    const r=cv.getBoundingClientRect();
+    const gx=e.clientX-r.left-(parseFloat(mlabel.style.left)||0),
+          gy=e.clientY-r.top-(parseFloat(mlabel.style.top)||0);
+    mlabel.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      const rr=cv.getBoundingClientRect();
+      labelAt=[ev.clientX-rr.left-gx, ev.clientY-rr.top-gy];
+      paintMeasure();
+    };
+    const up=ev=>{
+      try{ mlabel.releasePointerCapture(ev.pointerId); }catch(_e){}
+      mlabel.removeEventListener('pointermove',move);
+      mlabel.removeEventListener('pointerup',up);
+      mlabel.removeEventListener('pointercancel',up);
+    };
+    mlabel.addEventListener('pointermove',move);
+    mlabel.addEventListener('pointerup',up);
+    mlabel.addEventListener('pointercancel',up);
+  });
 
   // ---- keys, a picture of the view, and the view in the address ------- #
   // ---- the picture ---------------------------------------------------- #
@@ -1646,12 +1880,31 @@ async function boot(){
         g.moveTo((offX+ +el.getAttribute('x1'))*k, (offY+ +el.getAttribute('y1'))*k);
         g.lineTo((offX+ +el.getAttribute('x2'))*k, (offY+ +el.getAttribute('y2'))*k);
         g.stroke();
+      } else if(el.tagName==='polyline'){
+        // The caught rim. Stroked, never filled, whatever the ring encloses.
+        const p=(el.getAttribute('points')||'').trim();
+        if(!p) continue;
+        g.strokeStyle=st.stroke;
+        g.lineWidth=(parseFloat(st.strokeWidth)||1)*k;
+        g.globalAlpha=parseFloat(st.opacity)||1;
+        g.beginPath();
+        p.split(/\s+/).forEach((pair,n)=>{
+          const [px_,py_]=pair.split(',').map(Number);
+          if(n) g.lineTo((offX+px_)*k,(offY+py_)*k);
+          else  g.moveTo((offX+px_)*k,(offY+py_)*k);
+        });
+        g.stroke();
+        g.globalAlpha=1;
       } else if(el.tagName==='circle'){
-        g.fillStyle=st.fill; g.setLineDash([]);
+        // A ring if it is stroked and not filled, a dot if it is filled.
+        const filled=st.fill && st.fill!=='none';
+        g.setLineDash([]);
         g.beginPath();
         g.arc((offX+ +el.getAttribute('cx'))*k, (offY+ +el.getAttribute('cy'))*k,
               (+el.getAttribute('r'))*k, 0, 6.2832);
-        g.fill();
+        if(filled){ g.fillStyle=st.fill; g.fill(); }
+        else { g.strokeStyle=st.stroke;
+               g.lineWidth=(parseFloat(st.strokeWidth)||1)*k; g.stroke(); }
       } else if(el.tagName==='text' && el.textContent){
         g.setLineDash([]);
         const size=(parseFloat(st.fontSize)||11)*k;
@@ -1749,7 +2002,8 @@ async function boot(){
         on.dispatchEvent(new Event('change',{bubbles:true})); }
     else if(k==='m'){ measure.checked=!measure.checked;
         measure.dispatchEvent(new Event('change',{bubbles:true})); }
-    else if(e.key==='Escape'){ marks=[]; paintMeasure(); }
+    else if(e.key==='Escape'){ marks=[]; markCir=[]; labelAt=null;
+                               paintMeasure(); }
   });
   // The address always names the view on screen, so a link to it is a copy
   // away. replaceState, not pushState: turning a model should not fill the
@@ -2074,7 +2328,7 @@ def convert(opts: Options, log=None, progress=None) -> Report:
 
         phase(3, n, planned)
         data, crc, raw = pack(pos, nrm, col, idx, epos, eidx,
-                              st.get("face_starts", ()))
+                              st.get("face_starts", ()), st.get("circles", ()))
 
         phase(4, n, planned)
         # Each build stamps ITS OWN mesh, so whichever one is kept describes

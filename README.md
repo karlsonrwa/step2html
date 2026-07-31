@@ -77,6 +77,22 @@ again. Measuring is a mode rather than a modifier because a plain click
 already means "turn about this point", and one gesture cannot honestly mean
 two things.
 
+A measurement **snaps to the centre of a circle**. Hovering within about 14
+pixels of a circular edge — the rim of a hole, the end of a pin — catches that
+circle: its rim is drawn as a ring before the click, and the click takes the
+centre rather than the point under the cursor. The rims of the two points that
+were taken stay drawn, so a finished measurement, and a picture saved of it,
+says plainly that it was taken centre to centre and not by eye.
+
+The catch is made on the **rim** and not on the wall of the hole, because an
+arc has an exact centre while a cylinder only gives an axis — the height along
+it would be wherever the cursor happened to be. And it is tested against the
+**visible** point under the cursor, which is what stops it catching a hole on
+the far side of the board. The circles are found once, in Python, from the
+edges whose curve is a circle, and one hole is one entry however its rim is
+cut into arcs or shared between faces: on a 927-face board that is 545 circles,
+15 kB raw and **3.9 kB in the finished file — a quarter of a percent**.
+
 While measuring, the face under the cursor lights up and the line follows the
 cursor with the distance updating as it goes. The highlight costs almost
 nothing to carry: the triangles of one face are contiguous, so the file needs
@@ -93,6 +109,15 @@ left corner — X red, Y green, Z blue — which shows orientation and nothing
 else: no projection, no distance, no pivot. Checked against the named views,
 where it is unambiguous: from the top the Z arm collapses to a point, from the
 front the Y arm does and Z stands straight up.
+
+The reading itself parks in **the corner of the view furthest from the
+measurement**, on a thin lead back to the middle of the line. In the middle of
+that line, which is where it sat before, it covered the very thing being
+measured. The corner is chosen against points sampled *along* the legs and not
+only at their ends — a corner far from both ends can still sit squarely on top
+of a long leg — and the two bottom corners are entered with the axis triad and
+the view cube already accounted for. Drag it if the corner chosen is the wrong
+one; it then holds that place until the measurement is cleared.
 
 **Save PNG** writes out **what is on screen**, not just the triangles: the measurement, its stepped path, the numbers, the centre of rotation and the axis triad are all DOM and SVG, so they are drawn again onto a 2D canvas over the WebGL image, read back off the live elements so the file cannot disagree with the screen. The keys `1`–`8` pick
 the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
@@ -189,7 +214,7 @@ There is also `<meta name="generator">` in the head, so every file made by a
 given version can be found with an ordinary search through a folder.
 
 This is separate from the **payload format version** in the `S3DH` header,
-which is at 3 and answers a different question: whether the viewer can read
+which is at 4 and answers a different question: whether the viewer can read
 those bytes at all.
 
 ## Things already tried, and why it is the way it is
@@ -502,6 +527,22 @@ python gui.py
 что обычный щелчок уже означает «вращать вокруг этой точки», а один жест не
 может честно значить два разных.
 
+Измерение **привязывается к центру окружности**. Если курсор оказался
+примерно в 14 пикселях от круглого ребра — кромки отверстия, торца ножки, —
+эта окружность ловится: её обод рисуется кольцом ещё до щелчка, а щелчок
+ставит точку в центр, а не туда, куда попал курсор. Ободы обеих взятых точек
+остаются на экране, так что готовое измерение — и сохранённая картинка с ним —
+прямо говорит, что мерили от центра до центра, а не на глаз.
+
+Ловится именно **обод**, а не стенка отверстия: у дуги есть точный центр, а
+цилиндр даёт только ось, и высота вдоль неё оказалась бы там, куда случайно
+попал курсор. Проверка идёт по **видимой** точке под курсором — это и не даёт
+поймать отверстие с обратной стороны платы. Окружности находятся один раз, в
+Python, по рёбрам, кривая которых — окружность, и одно отверстие даёт одну
+запись, на сколько бы дуг ни был разрезан его обод и сколькими гранями бы он
+ни делился: на плате с 927 гранями это 545 окружностей, 15 КБ сырых и
+**3.9 КБ в готовом файле — четверть процента**.
+
 Во время измерения грань под курсором подсвечивается, а линия тянется за
 курсором, и расстояние обновляется на ходу. Подсветка почти ничего не стоит в
 файле: треугольники одной грани лежат подряд, поэтому нужен один начальный
@@ -518,6 +559,15 @@ python gui.py
 проекции, ни расстояния, ни центра вращения. Проверена по именованным видам,
 где ответ однозначен: сверху луч Z схлопывается в точку, спереди то же делает
 Y, а Z встаёт вертикально.
+
+Сама табличка с результатом уходит **в самый дальний от измерения угол вида**,
+а к середине линии от неё тянется тонкий поводок. Посреди этой линии, где она
+стояла раньше, она закрывала собой ровно то, что измеряют. Угол выбирается по
+точкам, взятым *вдоль* отрезков, а не только по их концам — угол, далёкий от
+обоих концов, вполне может оказаться прямо на длинном отрезке, — а в двух
+нижних углах уже учтены тройка осей и кубик видов. Если выбранный угол не тот,
+табличку можно перетащить мышью; она останется на новом месте, пока измерение
+не сбросят.
 
 **Save PNG** сохраняет **то, что на экране**, а не только треугольники: измерение, его ступенчатый путь, числа, центр вращения и тройка осей — это DOM и SVG, поэтому они дорисовываются на двумерном холсте поверх картинки WebGL, причём считываются с живых элементов, чтобы файл не мог разойтись с экраном. Клавиши `1`–`8` — восемь видов,
 `E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
@@ -615,7 +665,7 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 версии находятся обычным поиском по папке.
 
 Это отдельно от **версии формата полезной нагрузки** в заголовке `S3DH`, которая
-сейчас равна 3 и отвечает на другой вопрос: сможет ли просмотрщик вообще
+сейчас равна 4 и отвечает на другой вопрос: сможет ли просмотрщик вообще
 прочитать эти байты.
 
 ## Что уже пробовали, и почему сделано именно так

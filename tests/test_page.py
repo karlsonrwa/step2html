@@ -106,6 +106,14 @@ def main():
               "the pick ray starts in front of the model, not on the "
               "camera plane")
 
+        # ---- the measurement snaps, and says so ----------------------- #
+        check("snapAt" in page and "rimPath" in page,
+              "a measurement can snap to the centre of a circle")
+        check("polyline" in page and 'class="rim"' in page,
+              "and the rim it caught is shown before the click")
+        check("labelAt" in page and "line.lead" in page,
+              "the reading parks out of the way, on a lead")
+
         # ---- the file says what made it ------------------------------- #
         check(f'name="generator" content="step2html {S.__version__}'
               in page, "the head carries a generator tag with the version")
@@ -130,18 +138,32 @@ def main():
         crc = int(re.search(r"const CRC=(\d+)", page).group(1))
         raw = int(re.search(r"RAW=(\d+)", page).group(1))
         body = zlib.decompress(base64.b64decode(b64), -15)
-        magic, ver, nv, ni, nev, nei, nfa = struct.unpack("<4sIIIIII", body[:28])
+        magic, ver, nv, ni, nev, nei, nfa, ncr = struct.unpack(
+            "<4sIIIIIII", body[:32])
         check(magic == b"S3DH", "the payload carries its magic", str(magic))
         # The version and the layout are one thing, and this pins them
         # together: a header edited without the reader following it wrote a
         # version 2 file that the page then read as version 3, and the only
         # symptom was a feature that quietly did nothing.
-        check(ver == 3, "the payload is the version the page expects", str(ver))
-        head = 4 + 6 * 4 + 4 * 4
+        check(ver == 4, "the payload is the version the page expects", str(ver))
+        head = 4 + 7 * 4 + 4 * 4
         check(len(body) == head + nv * 12 + nv * 3 + nv * 3 + ni * 4
-              + nev * 12 + nei * 4 + nfa * 4,
+              + nev * 12 + nei * 4 + nfa * 4 + ncr * 28,
               "and every array in it is exactly where the header says")
-        starts = struct.unpack(f"<{nfa}I", body[len(body) - nfa * 4:])
+        # The fixture has a cylinder in it, so it has rims - and each rim must
+        # arrive ONCE however many faces and arcs it is cut into, or the snap
+        # scans the same circle over and over.
+        circles = struct.unpack(f"<{ncr * 7}f", body[len(body) - ncr * 28:])
+        centres = {tuple(round(v, 4) for v in circles[i * 7:i * 7 + 7])
+                   for i in range(ncr)}
+        check(ncr >= 2 and len(centres) == ncr,
+              "the circles are there and none of them is a duplicate",
+              f"{ncr} circles")
+        check(all(circles[i * 7 + 6] > 0 for i in range(ncr)),
+              "and every one of them has a radius")
+        starts = struct.unpack(f"<{nfa}I",
+                              body[len(body) - ncr * 28 - nfa * 4:
+                                   len(body) - ncr * 28])
         check(nfa > 0 and all(a <= b for a, b in zip(starts, starts[1:]))
               and starts[-1] < ni // 3,
               "the face table ascends and stays inside the triangles",
