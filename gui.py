@@ -24,10 +24,57 @@ import webbrowser
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
-import step_to_html as core
-import worker
+
+def _cannot_start(problem: BaseException) -> "None":
+    """Say it in a WINDOW, because the console is about to disappear.
+
+    Double-clicking a .py hands it to whichever Python the file association
+    picks - on Windows usually the py launcher - and on a machine with more
+    than one Python installed that need not be the one OCP was installed
+    into. The pipeline already reports that clearly, and already reports it
+    the only way a console program can: it prints and exits. What the user
+    sees is a black window that flashes and closes, and no way to read a word
+    of it. Reported from the field twice, with the same workaround both times:
+    a batch file, which keeps the console alive.
+
+    tkinter is in the standard library and is present whatever else is
+    missing, so the same words can go somewhere they stay - and this names the
+    interpreter that is running, which is the one fact that actually settles
+    it.
+    """
+    # Which interpreter is running is the fact that settles this, so the
+    # dialog always carries it - and exactly once, since the pipeline's own
+    # message about a missing OCP already names it.
+    where = ("" if sys.executable in str(problem)
+             else f"\n\nStarted with: {sys.executable}")
+    text = (f"{problem}{where}\n\n"
+            f"Double-clicking gui.py runs whichever Python Windows has "
+            f"associated with .py, which need not be the right one. "
+            f"step2html.cmd, beside this file, runs a Python of your choosing "
+            f"and keeps the console open when something goes wrong.")
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("step2html cannot start", text)
+        root.destroy()
+    except Exception:
+        # No display, or no Tk either. Hold the console open instead, which
+        # is the whole point - a message nobody can read is not a message.
+        print(text)
+        try:
+            input("\nPress Enter to close...")
+        except Exception:
+            pass
+    raise SystemExit(1)
+
+
+try:
+    import step_to_html as core
+    import worker
+except BaseException as _exc:      # SystemExit included: that is how core says it
+    _cannot_start(_exc)
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / "step2html_config.json"

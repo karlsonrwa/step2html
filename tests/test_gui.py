@@ -45,10 +45,44 @@ def tags_in(app):
     return used
 
 
+def check_startup_failure():
+    """A failure to start has to be READABLE.
+
+    Double-clicking gui.py hands it to whichever Python the .py association
+    picks, and on a machine with several that need not be the one with OCP in
+    it. The message was always right and always printed - into a console that
+    closes the instant the process exits, so nothing could be read. It goes
+    into a dialog now, and this pins that: the dialog is put up, it names the
+    interpreter, and the launcher it recommends actually exists.
+    """
+    from tkinter import messagebox
+    shown = []
+    real, messagebox.showerror = messagebox.showerror, \
+        lambda title, text, **k: shown.append((title, text))
+    try:
+        gui._cannot_start(SystemExit("No module named 'OCP'"))
+        raised = False
+    except SystemExit:
+        raised = True
+    finally:
+        messagebox.showerror = real
+    check(raised and len(shown) == 1,
+          "a startup failure puts up a dialog and stops",
+          f"raised={raised}, dialogs={len(shown)}")
+    text = shown[0][1] if shown else ""
+    check(sys.executable in text,
+          "and the dialog names the Python that is running")
+    check("step2html.cmd" in text
+          and (Path(gui.__file__).parent / "step2html.cmd").is_file(),
+          "and the launcher it points at is really there")
+
+
 def main():
     root = tk.Tk()
     root.withdraw()
     app = gui.App(root)
+
+    check_startup_failure()
 
     # ---- every flag has a control ------------------------------------- #
     flags = {f.name for f in core.Options.__dataclass_fields__.values()}

@@ -151,6 +151,22 @@ python tests/run_all.py
 
 ## The GUI
 
+**Start it with `step2html.cmd`**, or with `python gui.py` from a console.
+Double-clicking `gui.py` is the one way that can quietly fail: Windows hands a
+`.py` to whichever Python the file association picks — usually the `py`
+launcher — and on a machine with several Pythons installed that need not be the
+one OCP is in. The window then cannot start, says exactly why, and says it to a
+console that closes in the same instant, so what you see is a black flash. It
+has been reported twice, with the same workaround both times: a batch file,
+which keeps the console alive.
+
+Two things about that are now fixed. The reason goes into a **dialog** — with
+the interpreter that is running named in it, which is the fact that settles the
+question — because tkinter is in the standard library and is there whatever
+else is missing. And `step2html.cmd` ships beside the script: it runs `python`
+from `PATH`, or whatever `STEP2HTML_PYTHON` points at, and pauses on a failure
+so the reason can be read.
+
 Every command line flag has a control, a log coloured the way Simple 3D colours
 its own, a progress bar and a Cancel button. The conversion runs in a **child
 process**: OpenCASCADE can die outright rather than raise, and a thread taking
@@ -213,6 +229,7 @@ Pass `--max-bytes none` for a single build.
 | `step_to_html.py` | the whole pipeline, and the page template. `convert(Options, log, progress)` is the one entry point; `main()` is a thin CLI over it |
 | `gui.py` | the window. Builds the same `Options` and hands it to the worker |
 | `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
+| `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -678,6 +695,22 @@ python tests/run_all.py
 
 ## Окно программы
 
+**Запускать через `step2html.cmd`** или командой `python gui.py` из консоли.
+Двойной щелчок по `gui.py` — единственный способ, который может тихо не
+сработать: Windows отдаёт `.py` тому Python, который прописан в ассоциации
+(обычно это лаунчер `py`), а на машине с несколькими Python это не обязательно
+тот, в который поставлен OCP. Окно тогда не запускается, честно говорит почему
+— и говорит это в консоль, которая закрывается в ту же секунду, так что видно
+только чёрную вспышку. Об этом сообщили дважды, и оба раза с одним и тем же
+обходным путём: батник, который консоль не даёт закрыть.
+
+Две вещи в этом теперь исправлены. Причина выводится **в диалоговом окне**, и в
+нём назван запущенный интерпретатор — тот самый факт, который всё решает, —
+потому что tkinter входит в стандартную библиотеку и есть всегда, чего бы ни
+не хватало. И рядом со скриптом лежит `step2html.cmd`: он берёт `python` из
+`PATH` либо то, на что указывает `STEP2HTML_PYTHON`, и при ошибке делает паузу,
+чтобы причину можно было прочитать.
+
 У каждого ключа командной строки есть свой контрол, лог расцвечен так же, как в
 Simple 3D, есть индикатор выполнения и кнопка отмены. Преобразование идёт в
 **дочернем процессе**: OpenCASCADE умеет умирать сразу, а не бросать исключение,
@@ -741,6 +774,7 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `step_to_html.py` | весь конвейер и шаблон страницы. `convert(Options, log, progress)` — единственная точка входа, `main()` — тонкая обёртка командной строки |
 | `gui.py` | окно. Собирает тот же самый `Options` и отдаёт его воркеру |
 | `worker.py` | `convert` в дочернем процессе. Не должен импортировать tkinter: на Windows дочерний процесс порождается заново и импортирует модуль с нуля |
+| `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация

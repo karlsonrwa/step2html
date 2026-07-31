@@ -66,12 +66,17 @@ try:
     from OCP.XCAFApp import XCAFApp_Application
     from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
 except ImportError as exc:  # pragma: no cover - environment problem, not logic
+    # Names the interpreter that is running, because with several Pythons on
+    # a machine that is the whole question - and "stepbuilder", which this
+    # used to point at, means nothing outside the project it came from.
     raise SystemExit(
-        f"{exc}\n\nThis needs the same Python that runs stepbuilder - the one "
-        f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
+        f"{exc}\n\nstep2html needs OCP, the OpenCASCADE bindings, and the "
+        f"Python running this does not have it:\n  {sys.executable}\n\n"
+        f"Either install it there:\n  pip install cadquery-ocp\n"
+        f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
