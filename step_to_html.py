@@ -855,13 +855,15 @@ PAGE = r"""<!doctype html>
   #cube:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   /* Opens UPWARD: the button sits at the bottom of the window, and a menu
      dropping from it would go off the screen. */
+  /* As wide as its widest item and no wider - min-width was a guess, and a
+     guess that was half again too big. */
   #views{position:fixed;right:10px;bottom:54px;z-index:6;display:none;
-    flex-direction:column;min-width:170px;padding:5px;border-radius:6px;
+    flex-direction:column;padding:4px;border-radius:6px;
     background:var(--panel);border:1px solid var(--line);
     box-shadow:0 6px 24px rgba(0,0,0,.35)}
   #views.open{display:flex}
   #views button{font:inherit;font-size:12px;text-align:left;color:var(--fg);
-    background:none;border:0;border-radius:4px;padding:6px 10px;cursor:pointer;
+    background:none;border:0;border-radius:4px;padding:5px 9px;cursor:pointer;
     white-space:nowrap}
   #views button:hover{background:var(--hover);color:var(--strong)}
   /* Swallows the click that closes the menu, so it cannot also reach the
@@ -1455,10 +1457,16 @@ async function boot(){
     // to the projection it happens to be looked at through.
     const dx=marks[1][0]-marks[0][0], dy=marks[1][1]-marks[0][1],
           dz=marks[1][2]-marks[0][2];
-    const g=v=>(Math.abs(v)<1e-9?0:v).toFixed(2);
+    // Each delta named and signed: "71.35" alone says neither which axis it
+    // is on nor which way it points, and both matter when the question is
+    // whether something clears something else.
+    const g=(axis,v)=>{
+      const n=Math.abs(v)<5e-3?0:v;
+      return `Δ${axis} ${n>0?'+':''}${n.toFixed(2)}`;
+    };
     mlabel.textContent=`${Math.hypot(dx,dy,dz).toFixed(2)} mm
 `
-                      +`Δ ${g(dx)}  ${g(dy)}  ${g(dz)}`;
+                      +`${g('X',dx)}   ${g('Y',dy)}   ${g('Z',dz)}`;
     mlabel.style.left=((a[0]+b[0])/2)+'px';
     mlabel.style.top=((a[1]+b[1])/2-26)+'px';
   }
