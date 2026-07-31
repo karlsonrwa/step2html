@@ -61,10 +61,14 @@ fingers to pan, **a single click moves the centre of rotation onto the point
 under it**, double click resets. Orthographic or perspective, edges on or off,
 and a theme that follows the system until told otherwise.
 
-The small cube in the bottom right corner raises a menu of the six standard
-views — top, bottom, left, right, and isometric from above or below. Each one
-reorients and refits. A click anywhere else closes the menu and changes
-nothing.
+The small cube in the bottom right corner raises a menu of the eight standard
+views — top, bottom, front, back, left, right, and isometric from above or
+below. Each one reorients and refits. A click anywhere else closes the menu
+and changes nothing.
+
+Front is the view from **−Y**, with **+X** to the right and **+Z** up; back is
+its opposite. If a board's own idea of front is the other way round, it is one
+line in `VIEWS`.
 
 ## Installation
 
@@ -430,9 +434,14 @@ python gui.py
 курсором**, двойной щелчок — сброс. Проекция ортогональная или перспективная,
 рёбра включаются и выключаются, тема по умолчанию системная.
 
-Кубик в правом нижнем углу поднимает меню из шести стандартных видов — сверху,
-снизу, слева, справа и изометрия сверху или снизу. Каждый разворачивает камеру
-и вписывает модель в кадр. Щелчок мимо меню закрывает его и не меняет ничего.
+Кубик в правом нижнем углу поднимает меню из восьми стандартных видов —
+сверху, снизу, спереди, сзади, слева, справа и изометрия сверху или снизу.
+Каждый разворачивает камеру и вписывает модель в кадр. Щелчок мимо меню
+закрывает его и не меняет ничего.
+
+«Спереди» — это взгляд со стороны **−Y**, при котором **+X** вправо, а **+Z**
+вверх; «сзади» — противоположный. Если у платы своё представление о том, где
+перёд, это правится одной строкой в `VIEWS`.
 
 ## Установка
 

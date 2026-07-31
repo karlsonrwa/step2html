@@ -62,8 +62,18 @@ def main():
               "and the centre of rotation is shown where it landed")
         check("cam.rot" in page and "cam.pitch" not in page,
               "orientation is a matrix, so rotation has no stop in it")
-        check(page.count('data-view=') == 6 and 'id="cube"' in page,
-              "the view cube offers six standard views")
+        check(page.count('data-view=') == 8 and 'id="cube"' in page,
+              "the view cube offers eight standard views")
+        # The order of the menu IS the order of the VIEWS array, and a
+        # mismatch would silently show the wrong view under the right name.
+        order = re.findall(r'data-view="(\d)" role="menuitem">([^<]+)<', page)
+        want = [S.TEXT[k] for k in ("view_top", "view_bottom", "view_front",
+                                    "view_back", "view_left", "view_right",
+                                    "view_iso_top", "view_iso_bottom")]
+        check([n for _i, n in order] == want and
+              [i for i, _n in order] == list("01234567"),
+              "the menu is in the order the views are defined in",
+              ", ".join(n for _i, n in order))
         # The scrim is the whole of "a click outside closes the menu and the
         # view does not change": without it the click reaches the canvas and
         # turns the model or moves the centre of rotation.

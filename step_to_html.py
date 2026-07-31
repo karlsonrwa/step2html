@@ -70,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -166,10 +166,12 @@ TEXT = {
     "views": "Standard views",
     "view_top": "Top",
     "view_bottom": "Bottom",
+    "view_front": "Front",
+    "view_back": "Back",
     "view_left": "Left",
     "view_right": "Right",
-    "view_iso_top": "Isometric, top",
-    "view_iso_bottom": "Isometric, bottom",
+    "view_iso_top": "Top isometric",
+    "view_iso_bottom": "Bottom isometric",
 }
 
 
@@ -898,10 +900,12 @@ PAGE = r"""<!doctype html>
 <div id="views" role="menu">
 <button type="button" data-view="0" role="menuitem">__L_VIEW_TOP__</button>
 <button type="button" data-view="1" role="menuitem">__L_VIEW_BOTTOM__</button>
-<button type="button" data-view="2" role="menuitem">__L_VIEW_LEFT__</button>
-<button type="button" data-view="3" role="menuitem">__L_VIEW_RIGHT__</button>
-<button type="button" data-view="4" role="menuitem">__L_VIEW_ISO_TOP__</button>
-<button type="button" data-view="5" role="menuitem">__L_VIEW_ISO_BOTTOM__</button>
+<button type="button" data-view="2" role="menuitem">__L_VIEW_FRONT__</button>
+<button type="button" data-view="3" role="menuitem">__L_VIEW_BACK__</button>
+<button type="button" data-view="4" role="menuitem">__L_VIEW_LEFT__</button>
+<button type="button" data-view="5" role="menuitem">__L_VIEW_RIGHT__</button>
+<button type="button" data-view="6" role="menuitem">__L_VIEW_ISO_TOP__</button>
+<button type="button" data-view="7" role="menuitem">__L_VIEW_ISO_BOTTOM__</button>
 </div>
 <div id="err"><p id="errtext"></p></div>
 <script type="text/plain" id="geo">__DATA__</script>
@@ -1081,13 +1085,16 @@ async function boot(){
                              x[2],y[2],z[2],0,
                              0,0,0,1]);
   }
+  // Order matters: it is the order of the menu, and data-view indexes into it.
   const VIEWS=[
     basis([0,0,1],  [0,1,0]),      // top
     basis([0,0,-1], [0,1,0]),      // bottom
+    basis([0,-1,0], [0,0,1]),      // front
+    basis([0,1,0],  [0,0,1]),      // back
     basis([-1,0,0], [0,0,1]),      // left
     basis([1,0,0],  [0,0,1]),      // right
-    basis([1,-1,1], [0,0,1]),      // isometric from above
-    basis([1,-1,-1],[0,0,-1]),     // isometric from below
+    basis([1,-1,1], [0,0,1]),      // top isometric
+    basis([1,-1,-1],[0,0,-1]),     // bottom isometric
   ];
   const HOME={dist:0,px:0,py:0};
   // ||1 on both sides: a canvas that has not been laid out yet reports 0,
@@ -1482,6 +1489,8 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_VIEWS__": html.escape(TEXT["views"]),
         "__L_VIEW_TOP__": html.escape(TEXT["view_top"]),
         "__L_VIEW_BOTTOM__": html.escape(TEXT["view_bottom"]),
+        "__L_VIEW_FRONT__": html.escape(TEXT["view_front"]),
+        "__L_VIEW_BACK__": html.escape(TEXT["view_back"]),
         "__L_VIEW_LEFT__": html.escape(TEXT["view_left"]),
         "__L_VIEW_RIGHT__": html.escape(TEXT["view_right"]),
         "__L_VIEW_ISO_TOP__": html.escape(TEXT["view_iso_top"]),
