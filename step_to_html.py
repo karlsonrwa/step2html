@@ -70,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -163,6 +163,12 @@ TEXT = {
     "about_source": "Source",
     "about_mesh": "Mesh",
     "about_made": "Made",
+    "about_size": "Size",
+    "k_keys": "1-8 · E · P · M",
+    "v_keys": "Views, edges, projection, measure",
+    "tools": "Tools",
+    "measure": "Measure",
+    "save_png": "Save PNG",
     "views": "Standard views",
     "view_top": "Top",
     "view_bottom": "Bottom",
@@ -795,7 +801,26 @@ PAGE = r"""<!doctype html>
      column comes out half as wide again. */
   body.side #bar > .grp:first-child{width:0;min-width:100%;
     overflow-wrap:anywhere}
+  #bar button.link{font:inherit;font-size:12px;color:var(--accent);
+    background:none;border:0;border-radius:4px;padding:3px 8px;cursor:pointer}
+  #bar button.link:hover{background:var(--hover)}
+  #bar input[type=checkbox]{accent-color:var(--accent);margin:0 5px 0 0;
+    cursor:pointer}
   #view{flex:1 1 auto;min-height:0;min-width:0;position:relative}
+  #view.measuring{cursor:crosshair}
+  /* The measurement is drawn as an OVERLAY, not as geometry: two projected
+     points and a line between them need no buffer, no draw call and no depth
+     test, and a measurement should be readable through the model anyway. */
+  #mline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+    display:none}
+  #mline.on{display:block}
+  #mline line{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+  #mline circle{fill:var(--accent)}
+  #mlabel{position:absolute;transform:translate(-50%,-50%);pointer-events:none;
+    display:none;padding:4px 8px;border-radius:4px;font-size:12px;
+    line-height:1.35;text-align:center;white-space:pre;color:var(--strong);
+    background:var(--panel);border:1px solid var(--line)}
+  #mlabel.on{display:block}
   /* The centre of rotation, drawn as an overlay rather than as geometry: it
      is projected to a screen position once per frame, which is a great deal
      less than a second draw call, and CSS animates it for free. */
@@ -866,6 +891,9 @@ PAGE = r"""<!doctype html>
 <div class="grp"><span class="cap">__L_EDGES__</span>
 <label><input type="radio" name="edge" value="on" checked>__L_ON__</label>
 <label><input type="radio" name="edge" value="off">__L_OFF__</label></div>
+<div class="grp"><span class="cap">__L_TOOLS__</span>
+<label><input type="checkbox" id="measure">__L_MEASURE__</label>
+<button id="png" type="button" class="link">__L_SAVE_PNG__</button></div>
 <div class="grp"><span class="cap">__L_THEME__</span>
 <label><input type="radio" name="theme" value="system" checked>__L_SYSTEM__</label>
 <label><input type="radio" name="theme" value="light">__L_LIGHT__</label>
@@ -873,17 +901,21 @@ PAGE = r"""<!doctype html>
 <button id="help" type="button" title="__L_HELP__" aria-label="__L_HELP__">?</button>
 </div>
 <div id="view"><canvas id="cv"></canvas>
-<div id="pivot"><i></i></div></div>
+<div id="pivot"><i></i></div>
+<svg id="mline"><line/><circle r="3.5"/><circle r="3.5"/></svg>
+<div id="mlabel"></div></div>
 <dialog id="helpbox">
 <h2>__L_HELP_TITLE__</h2>
 <dl><dt>__L_K_ROTATE__</dt><dd>__L_V_ROTATE__</dd>
 <dt>__L_K_ZOOM__</dt><dd>__L_V_ZOOM__</dd>
 <dt>__L_K_PAN__</dt><dd>__L_V_PAN__</dd>
 <dt>__L_K_CLICK__</dt><dd>__L_V_CLICK__</dd>
-<dt>__L_K_RESET__</dt><dd>__L_V_RESET__</dd></dl>
+<dt>__L_K_RESET__</dt><dd>__L_V_RESET__</dd>
+<dt>__L_K_KEYS__</dt><dd>__L_V_KEYS__</dd></dl>
 <hr>
 <dl class="about">
 <dt>__L_ABOUT_SOURCE__</dt><dd>__M_SOURCE__</dd>
+<dt>__L_ABOUT_SIZE__</dt><dd>__M_SIZE__</dd>
 <dt>__L_ABOUT_MESH__</dt><dd>__M_MESH__</dd>
 <dt>__L_ABOUT_MADE__</dt><dd>__M_MADE__</dd></dl>
 <p class="made">__M_VERSION__</p>
@@ -1113,7 +1145,7 @@ async function boot(){
     return {...HOME, pivot:[0,0,0], rot:new Float32Array(HOME_ROT),
             dist:d, oh:d*Math.tan(FOV/2)};
   };
-  let cam=home(), light=false, lastMV=null;
+  let cam=home(), light=false, lastMV=null, lastP=null;
   const marker=document.getElementById('pivot');
   let markerTimer=null;
   function showMarker(fadeAfter){
@@ -1182,7 +1214,7 @@ async function boot(){
     const Tp=new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0,
                                -cam.pivot[0],-cam.pivot[1],-cam.pivot[2],1]);
     const MV=mul(Tv,mul(cam.rot,Tp));
-    lastMV=MV;
+    lastMV=MV; lastP=P;
     const MVP=mul(P,MV);
     const lines=edges&&nei;
     gl.useProgram(pr); gl.bindVertexArray(vaSurf);
@@ -1199,6 +1231,8 @@ async function boot(){
       marker.style.left=((px_*.5+.5)*w)+'px';
       marker.style.top=((.5-py_*.5)*h)+'px';
     }
+    paintMeasure();
+    rememberView();
     if(lines){
       // LEQUAL as well: a line sampled on the true curve and the chords of
       // the mesh that bounds it are not at identical depth, and ties should
@@ -1313,7 +1347,12 @@ async function boot(){
     if(p && !p.pan && ptrs.size===1 && Math.hypot(e.clientX-p.downX,
                                                   e.clientY-p.downY) < 4){
       const target=pick(e.clientX,e.clientY);
-      if(target){ setPivot(target); draw(); showMarker(1200); }
+      if(measure.checked){
+        // In measuring mode a click places a point and nothing else moves.
+        // A third click starts a fresh measurement rather than adding to one.
+        if(target){ if(marks.length>=2) marks=[]; marks.push(target); draw(); }
+      }
+      else if(target){ setPivot(target); draw(); showMarker(1200); }
       else showMarker(400);
     } else {
       showMarker(500);
@@ -1375,6 +1414,115 @@ async function boot(){
     closeMenu();
     draw();
   });
+
+  // ---- measuring ------------------------------------------------------ #
+  // A separate MODE, because a plain click already means "turn about this
+  // point" and one gesture cannot honestly mean two things.
+  const measure=document.getElementById('measure'),
+        mline=document.getElementById('mline'),
+        mlabel=document.getElementById('mlabel'),
+        view=document.getElementById('view');
+  let marks=[];
+  measure.addEventListener('change',()=>{
+    view.classList.toggle('measuring',measure.checked);
+    marks=[]; paintMeasure();
+  });
+  function toScreen(p){
+    if(!lastP||!lastMV) return null;
+    const x=lastMV[0]*p[0]+lastMV[4]*p[1]+lastMV[8]*p[2]+lastMV[12];
+    const y=lastMV[1]*p[0]+lastMV[5]*p[1]+lastMV[9]*p[2]+lastMV[13];
+    const z=lastMV[2]*p[0]+lastMV[6]*p[1]+lastMV[10]*p[2]+lastMV[14];
+    const cx=lastP[0]*x+lastP[4]*y+lastP[8]*z+lastP[12];
+    const cy=lastP[1]*x+lastP[5]*y+lastP[9]*z+lastP[13];
+    const cw=lastP[3]*x+lastP[7]*y+lastP[11]*z+lastP[15];
+    if(cw<=1e-6) return null;
+    return [(cx/cw*.5+.5)*cv.clientWidth, (.5-cy/cw*.5)*cv.clientHeight];
+  }
+  function paintMeasure(){
+    const a=marks[0]&&toScreen(marks[0]), b=marks[1]&&toScreen(marks[1]);
+    mline.classList.toggle('on', !!a);
+    mlabel.classList.toggle('on', !!(a&&b));
+    if(!a) return;
+    const [c1,c2]=mline.querySelectorAll('circle'), ln=mline.querySelector('line');
+    c1.setAttribute('cx',a[0]); c1.setAttribute('cy',a[1]);
+    c2.setAttribute('cx',(b||a)[0]); c2.setAttribute('cy',(b||a)[1]);
+    c2.style.display=b?'':'none';
+    ln.setAttribute('x1',a[0]); ln.setAttribute('y1',a[1]);
+    ln.setAttribute('x2',(b||a)[0]); ln.setAttribute('y2',(b||a)[1]);
+    ln.style.display=b?'':'none';
+    if(!b) return;
+    // Measured in MODEL space, so the number is millimetres and owes nothing
+    // to the projection it happens to be looked at through.
+    const dx=marks[1][0]-marks[0][0], dy=marks[1][1]-marks[0][1],
+          dz=marks[1][2]-marks[0][2];
+    const g=v=>(Math.abs(v)<1e-9?0:v).toFixed(2);
+    mlabel.textContent=`${Math.hypot(dx,dy,dz).toFixed(2)} mm
+`
+                      +`Δ ${g(dx)}  ${g(dy)}  ${g(dz)}`;
+    mlabel.style.left=((a[0]+b[0])/2)+'px';
+    mlabel.style.top=((a[1]+b[1])/2-26)+'px';
+  }
+
+  // ---- keys, a picture of the view, and the view in the address ------- #
+  document.getElementById('png').addEventListener('click',()=>{
+    // Drawn again first: without preserveDrawingBuffer the buffer is empty
+    // once the browser has composited it, and the file would come out blank.
+    draw();
+    const a=document.createElement('a');
+    a.download=(document.title||'view')+'.png';
+    a.href=cv.toDataURL('image/png');
+    a.click();
+  });
+  function showView(i){
+    cam=home();
+    cam.rot=new Float32Array(VIEWS[i]);
+    cam.dist=fitDist(cam.rot,Math.max(.2,cv.clientWidth/cv.clientHeight));
+    cam.oh=cam.dist*Math.tan(FOV/2);
+    touched=true; closeMenu(); draw();
+  }
+  addEventListener('keydown',e=>{
+    if(e.ctrlKey||e.altKey||e.metaKey) return;
+    const n=parseInt(e.key,10);
+    if(n>=1&&n<=VIEWS.length){ showView(n-1); return; }
+    const k=e.key.toLowerCase();
+    if(k==='e'){ const on=[...document.querySelectorAll('input[name=edge]')]
+        .find(r=>r.value===(edges?'off':'on')); on.checked=true;
+        on.dispatchEvent(new Event('change',{bubbles:true})); }
+    else if(k==='p'){ const on=[...document.querySelectorAll('input[name=proj]')]
+        .find(r=>r.value===(ortho?'persp':'ortho')); on.checked=true;
+        on.dispatchEvent(new Event('change',{bubbles:true})); }
+    else if(k==='m'){ measure.checked=!measure.checked;
+        measure.dispatchEvent(new Event('change',{bubbles:true})); }
+    else if(e.key==='Escape'){ marks=[]; paintMeasure(); }
+  });
+  // The address always names the view on screen, so a link to it is a copy
+  // away. replaceState, not pushState: turning a model should not fill the
+  // back button with a hundred entries.
+  let hashTimer=null;
+  function rememberView(){
+    clearTimeout(hashTimer);
+    hashTimer=setTimeout(()=>{
+      const n=v=>(+v).toPrecision(6).replace(/0+$/,'').replace(/\.$/,'');
+      const bits=[...cam.rot.slice(0,3),...cam.rot.slice(4,7),
+                  ...cam.rot.slice(8,11), cam.dist, cam.oh, cam.px, cam.py,
+                  ...cam.pivot].map(n).join(',');
+      try{ history.replaceState(null,'','#v='+bits); }catch(_e){}
+    },400);
+  }
+  (function restoreView(){
+    const m=/^#v=([-\d.,e]+)$/.exec(location.hash);
+    if(!m) return;
+    const p=m[1].split(',').map(Number);
+    // Nine for the rotation, then dist, oh, px, py, and three for the pivot.
+    // Counted wrong once, and the only symptom was a link that silently did
+    // not restore anything.
+    if(p.length!==16||p.some(Number.isNaN)) return;
+    cam.rot=new Float32Array([p[0],p[1],p[2],0, p[3],p[4],p[5],0,
+                              p[6],p[7],p[8],0, 0,0,0,1]);
+    cam.dist=p[9]; cam.oh=p[10]; cam.px=p[11]; cam.py=p[12];
+    cam.pivot=[p[13],p[14],p[15]];
+    touched=true;
+  })();
 
   // Refit on resize, but only until the user has moved the camera themselves.
   cv.addEventListener('dblclick',()=>{touched=false;cam=home();draw()});
@@ -1486,6 +1634,13 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_ABOUT_SOURCE__": html.escape(TEXT["about_source"]),
         "__L_ABOUT_MESH__": html.escape(TEXT["about_mesh"]),
         "__L_ABOUT_MADE__": html.escape(TEXT["about_made"]),
+        "__L_ABOUT_SIZE__": html.escape(TEXT["about_size"]),
+        "__L_K_KEYS__": html.escape(TEXT["k_keys"]),
+        "__L_V_KEYS__": html.escape(TEXT["v_keys"]),
+        "__L_TOOLS__": html.escape(TEXT["tools"]),
+        "__L_MEASURE__": html.escape(TEXT["measure"]),
+        "__L_SAVE_PNG__": html.escape(TEXT["save_png"]),
+        "__M_SIZE__": html.escape(meta.get("size", "")),
         "__L_VIEWS__": html.escape(TEXT["views"]),
         "__L_VIEW_TOP__": html.escape(TEXT["view_top"]),
         "__L_VIEW_BOTTOM__": html.escape(TEXT["view_bottom"]),
@@ -1667,8 +1822,11 @@ def convert(opts: Options, log=None, progress=None) -> Report:
         phase(4, n, planned)
         # Each build stamps ITS OWN mesh, so whichever one is kept describes
         # itself rather than something the search tried on the way.
+        span = lambda a: max(a) - min(a)
         page = build_page(title, st, data, crc, raw, meta={
             "source": step.name,
+            "size": f"{span(pos[0::3]):.4g} × {span(pos[1::3]):.4g} "
+                    f"× {span(pos[2::3]):.4g} mm",
             "mesh": f"{lin:.4g} mm / {deg:.3g}°, "
                     + f"{st['triangles']:,}".replace(",", " ")
                     + " triangles",

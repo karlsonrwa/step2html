@@ -70,6 +70,18 @@ Front is the view from **−Y**, with **+X** to the right and **+Z** up; back is
 its opposite. If a board's own idea of front is the other way round, it is one
 line in `VIEWS`.
 
+Tick **Measure** and two clicks give the distance between the points, with
+ΔX/ΔY/ΔZ beside it — computed in model space, so the number is millimetres and
+owes nothing to the projection it is looked at through. A third click starts
+again. Measuring is a mode rather than a modifier because a plain click
+already means "turn about this point", and one gesture cannot honestly mean
+two things.
+
+**Save PNG** writes the current view out as a picture. The keys `1`–`8` pick
+the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
+the address bar always names the view on screen, so sending somebody a link to
+one corner of the board is a copy away.
+
 ## Installation
 
 Python 3.10 or newer, and one dependency:
@@ -442,6 +454,18 @@ python gui.py
 «Спереди» — это взгляд со стороны **−Y**, при котором **+X** вправо, а **+Z**
 вверх; «сзади» — противоположный. Если у платы своё представление о том, где
 перёд, это правится одной строкой в `VIEWS`.
+
+Галка **Measure** — и два щелчка дают расстояние между точками, рядом
+ΔX/ΔY/ΔZ. Считается в системе координат модели, поэтому число это миллиметры и
+оно ничем не обязано той проекции, через которую на него смотрят. Третий
+щелчок начинает заново. Измерение сделано режимом, а не модификатором, потому
+что обычный щелчок уже означает «вращать вокруг этой точки», а один жест не
+может честно значить два разных.
+
+**Save PNG** сохраняет текущий вид картинкой. Клавиши `1`–`8` — восемь видов,
+`E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
+всегда называет вид, который на экране, так что отправить кому-то ссылку на
+конкретный угол платы — это скопировать строку.
 
 ## Установка
 

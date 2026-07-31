@@ -89,6 +89,15 @@ def main():
                     S.TEXT["about_made"]):
             check(f"<dt>{row}</dt>" in page, f"the help states the {row.lower()}")
         check("fixture.step" in page, "the source STEP is named")
+        check(f"<dt>{S.TEXT['about_size']}</dt>" in page and " mm</dd>" in page,
+              "and how big it is, in mm")
+
+        # ---- the tools ------------------------------------------------ #
+        for want, what in (('id="measure"', "a measure mode"),
+                           ('id="png"', "a way to save the view as a picture"),
+                           ("location.hash", "the view in the address"),
+                           ("keydown", "keyboard shortcuts")):
+            check(want in page, f"the page carries {what}")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()
