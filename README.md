@@ -521,6 +521,45 @@ the two-pointer case there is no way to zoom on one at all.
 
 ## Reviewed
 
+### 31 Jul 2026, at 0.9.4
+
+A third pass, over everything. One fault, two holes in the suite where the
+newest work had none, and three tidyings. The mechanical cross-checks from the
+last pass — placeholders against substitutions both ways, `TEXT` keys, every id
+the script reaches for, functions nothing calls — all came back clean.
+
+* **Text substituted into the page was then read AS page.** `build_page`
+  replaced key by key in a loop, so a value could contain what looks like a
+  later placeholder and be rewritten by it. A title is user text — a `--title`,
+  or the STEP's own stem — and a title of `__L_ON__` came out on the page as
+  **On**. One `re.sub` pass now, so nothing substituted is ever scanned again.
+* **The repair had no test at all.** The fixture has no face the mesher
+  refuses, which the suite even states, so `_patch_face` — the most delicate
+  piece here, and the one whose order was just rearranged for speed — was
+  running untested. A refusable face could not be built to order either: five
+  constructions of the closed periodic case, π to 3π on a cylinder and on a
+  cone, were all meshed happily. So the patch is exercised on a healthy closed
+  face instead, which pins what a patch must be whatever asked for it — meshed,
+  covering **exactly** the surface it stands in for (area equal to a millionth),
+  and split, that last one pinning the order.
+* **The circles a measurement snaps to had no geometric test.** They come from
+  an edge's curve, which already carries the *edge's* location, and the
+  *part's* placement is applied on top by hand — the same hiding place as the
+  colour bug of two rounds ago. Now pinned: the fixture's pin gives one circle
+  per rim and no more, their centres carry the placement, they sit 6 mm apart,
+  and every axis is a unit vector. Proven by breaking it: drop the placement
+  and the centres land 40 mm away, back at the origin.
+* **Three forced layouts a frame** in `paintMeasure`, one expression asking for
+  the same rectangle twice. A `getBoundingClientRect` after a style has been
+  written makes the browser lay the page out again to answer; it is asked once
+  now.
+* **A `hasattr` guard that cannot fail** in the window's `_remembered` —
+  `_load_config` sets the attribute unconditionally in `__init__`. The same
+  species the first review found in the tests.
+* **An assumption worth writing down:** the picture paints the axis triad at an
+  offset in CSS pixels into coordinates that are SVG user units, which is only
+  the same thing because `#axes` is 88 px wide with a `0 0 88 88` viewBox.
+
 ### 31 Jul 2026, at 0.8.0
 
 A second full pass. Three of these are real faults, the rest are the kind of
@@ -1141,6 +1180,49 @@ Chrome отказывается скачивать `data:` длиннее при
 без обработки двух пальцев масштаба на нём нет никакого.
 
 ## Ревью
+
+### 31 июля 2026, на 0.9.4
+
+Третий проход, по всему. Одна ошибка, две дыры в тестах ровно там, где лежала
+самая свежая работа, и три наведения порядка. Механические сверки прошлого
+прохода — места подстановки против подстановок в обе стороны, ключи `TEXT`, все
+элементы, которые ищет скрипт, функции, которых никто не зовёт, — все чистые.
+
+* **Текст, подставленный в страницу, потом читался КАК страница.**
+  `build_page` заменял ключ за ключом в цикле, поэтому значение могло содержать
+  то, что выглядит как более позднее место подстановки, и быть переписано им.
+  Заголовок — это пользовательский текст: `--title` или имя самого STEP. И
+  заголовок `__L_ON__` выходил на странице как **On**. Теперь один проход
+  `re.sub`, и подставленное больше никогда не перечитывается.
+* **У починки не было ни одного теста.** У фикстуры нет грани, от которой
+  мешер отказывается, — набор тестов сам об этом и пишет, — так что
+  `_patch_face`, самая тонкая здесь вещь и та, чей порядок только что
+  переставили ради скорости, работал непроверенным. Построить отказную грань
+  на заказ тоже не вышло: пять конструкций замкнутого периодического случая, от
+  π до 3π на цилиндре и на конусе, спокойно смешились. Поэтому починка
+  проверяется на здоровой замкнутой грани — и это закрепляет то, чем патч
+  обязан быть, кто бы его ни попросил: смешенным, покрывающим **ровно** ту
+  поверхность, вместо которой он стоит (площадь с точностью до миллионной), и
+  разрезанным — последнее закрепляет порядок.
+* **У окружностей, к которым привязывается измерение, не было геометрической
+  проверки.** Они берутся из кривой ребра, которая уже несёт локацию *ребра*, а
+  положение *детали* накладывается сверху вручную — то же самое укрытие, что и
+  у ошибки с цветом двумя раундами раньше. Теперь закреплено: ножка фикстуры
+  даёт по одной окружности на кромку и не больше, их центры несут положение
+  детали, они стоят в 6 мм друг от друга, и у каждой единичная ось. Доказано
+  поломкой: без наложения положения центры уезжают на 40 мм, обратно в начало
+  координат.
+* **Три принудительных пересчёта раскладки на кадр** в `paintMeasure`, причём
+  одно выражение спрашивало один и тот же прямоугольник дважды.
+  `getBoundingClientRect` после записи стиля заставляет браузер разложить
+  страницу заново, чтобы ответить; теперь спрашивается один раз.
+* **Проверка `hasattr`, которая не может провалиться,** в `_remembered` окна:
+  `_load_config` ставит атрибут безусловно и в `__init__`. Тот же вид, что
+  первое ревью нашло в тестах.
+* **Допущение, которое стоило записать:** картинка рисует тройку осей со
+  смещением в CSS-пикселях в координатах, которые являются пользовательскими
+  единицами SVG, и это одно и то же только потому, что `#axes` шириной 88 px
+  при viewBox `0 0 88 88`.
 
 ### 31 июля 2026, на 0.8.0
 

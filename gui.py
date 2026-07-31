@@ -303,7 +303,11 @@ class App:
         return ""
 
     def _remembered(self, key: str) -> str:
-        return self._config.get(key, "") if hasattr(self, "_config") else ""
+        # No hasattr guard: _load_config sets _config unconditionally, and it
+        # runs in __init__ before any control can call this. A check that
+        # cannot fail reads as coverage of a case that does not exist - the
+        # same species the first review found in the tests.
+        return self._config.get(key, "")
 
     # ---------------------------------------------------------------- running
 

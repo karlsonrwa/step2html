@@ -25,8 +25,11 @@ import step_to_html as S
 from fixtures import coloured_assembly
 
 from OCP.BRep import BRep_Tool
+from OCP.BRepGProp import BRepGProp
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCP.BRepTools import BRepTools
+from OCP.GProp import GProp_GProps
 from OCP.TopLoc import TopLoc_Location
 
 FAILURES = []
@@ -37,6 +40,12 @@ def check(ok, what, detail=""):
     print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
     if not ok:
         FAILURES.append(what)
+
+
+def _area(shape) -> float:
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(shape, props)
+    return props.Mass()
 
 
 def build(step, repair):
@@ -82,6 +91,38 @@ def main():
               "the repair only ever adds geometry",
               f"{plain_tris} -> {fixed_tris}")
         check(not left, "this fixture needs no patching in the first place")
+
+        # ... and because it does, _patch_face itself had no test at all - the
+        # most delicate piece of the pipeline, and the one whose order was just
+        # rearranged for speed. A face the mesher refuses could not be built
+        # synthetically to trigger it: five constructions of the closed
+        # periodic case, pi to 3*pi on a cylinder and on a cone, were all
+        # meshed happily. So the patch is exercised on a healthy closed face
+        # instead, which pins what a patch must be whatever asked for it.
+        cyl = BRepPrimAPI_MakeCylinder(1.5, 6.0).Shape()
+        lateral = max(S._faces(cyl), key=_area)      # the closed periodic one
+        patch = S._patch_face(lateral, 0.04, ANGULAR)
+        check(patch is not None, "a patch comes back at all")
+        if patch is not None:
+            tris = 0
+            for f in S._faces(patch):
+                t = BRep_Tool.Triangulation_s(f, TopLoc_Location())
+                tris += t.NbTriangles() if t is not None else 0
+            check(tris > 0, "and it is meshed", f"{tris} triangles")
+            # A patch stands in for the face it replaces, so it has to cover
+            # the same surface. Mangled by the split, it would be a hole or a
+            # doubled face, and nothing else here would notice.
+            a0, a1 = _area(lateral), _area(patch)
+            check(abs(a1 - a0) <= a0 * 1e-6,
+                  "and it covers exactly the face it stands in for",
+                  f"{a0:.5f} -> {a1:.5f} mm2")
+            # Two faces mean the SPLIT was tried first, which is the whole of
+            # the speed fix: a plain copy at the model's own deflection is the
+            # attempt the mesher has just refused, and on a real connector it
+            # costs 0.85 s to be refused again.
+            check(len(S._faces(patch)) == 2,
+                  "and the split is what was tried first at this deflection",
+                  f"{len(S._faces(patch))} face(s)")
 
         # tessellate reads the triangulation; it does not make one. That is
         # what took the second BRepMesh out of it - 1.2 s a build on a real

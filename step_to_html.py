@@ -30,6 +30,7 @@ import base64
 import html
 import math
 import os
+import re
 import stat
 import struct
 import sys
@@ -76,7 +77,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.4"
+__version__ = "0.9.5"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -1740,6 +1741,11 @@ async function boot(){
     return [(cx/cw*.5+.5)*cv.clientWidth, (.5-cy/cw*.5)*cv.clientHeight];
   }
   function paintMeasure(){
+    // Asked for ONCE. This runs on every frame of a drag, and a
+    // getBoundingClientRect after a style has been written forces the browser
+    // to lay the page out again to answer it - three of them in here was two
+    // too many, and one expression was asking twice on its own.
+    const cr=cv.getBoundingClientRect();
     // With one point placed, the second end of the line is wherever the
     // cursor is: the point under it if there is one, and failing that the
     // cursor's own position on screen - with no number, because there is
@@ -1749,8 +1755,7 @@ async function boot(){
     const ends = live ? [marks[0], live] : marks;
     const a=ends[0]&&toScreen(ends[0]), b=ends[1]&&toScreen(ends[1]);
     const loose = marks.length===1 && measure.checked && !live && cursor
-                  ? [cursor[0]-cv.getBoundingClientRect().left,
-                     cursor[1]-cv.getBoundingClientRect().top] : null;
+                  ? [cursor[0]-cr.left, cursor[1]-cr.top] : null;
     // The caught rim, shown whether or not a point has been placed: it is the
     // answer to "what will this click take", given before the click. The
     // other two belong to the points already placed, and stay up - so a
@@ -1871,7 +1876,6 @@ async function boot(){
     // the bottom two were numbers once, which is why the cube was cleared and
     // the help button, having no number of its own, was not.
     const M=12, GAP=8;
-    const cr=cv.getBoundingClientRect();
     const furniture=[];
     for(const el of [document.getElementById('help'), cube, axesSvg]){
       const fb=el&&el.getBoundingClientRect();
@@ -2045,7 +2049,10 @@ async function boot(){
     if(mline.classList.contains('on')) paintSvgOnto(g,mline,0,0,k);
     // Where the triad actually is, asked of the element rather than worked
     // out again from the stylesheet: a corner written down twice is a corner
-    // that moves in one place and not the other.
+    // that moves in one place and not the other. The offset is in CSS pixels
+    // and the coordinates inside the SVG are user units, which are the same
+    // thing only because #axes is 88 px wide with a 0 0 88 88 viewBox - keep
+    // those two numbers equal or this needs a scale as well.
     const ar=axesSvg.getBoundingClientRect(), cr=cv.getBoundingClientRect();
     paintSvgOnto(g,axesSvg,ar.left-cr.left,ar.top-cr.top,k);
     if(mlabel.classList.contains('on')){
@@ -2268,10 +2275,12 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_VIEW_ISO_BOTTOM__": html.escape(TEXT["view_iso_bottom"]),
         "__DATA__": data,          # base64 cannot contain < or &
     }
-    page = PAGE
-    for key, value in subs.items():
-        page = page.replace(key, value)
-    return page
+    # ONE pass, so nothing substituted is ever scanned again. Replacing key by
+    # key in a loop lets a value contain what looks like a later placeholder
+    # and be rewritten by it: a title of "__L_ON__" - and a title is user text,
+    # a --title or the STEP's own stem - came out on the page as "On".
+    return re.sub(r"__[A-Z_0-9]+__",
+                  lambda m: subs.get(m.group(0), m.group(0)), PAGE)
 
 
 def _js(s: str) -> str:

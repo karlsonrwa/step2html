@@ -39,6 +39,15 @@ def main():
 
         left = re.findall(r"__[A-Z_]+__", page)
         check(not left, "no placeholder reaches the browser", str(left[:4]))
+        # A title is user text - a --title, or the STEP's own stem - and text
+        # substituted into the template must not then be read AS template.
+        # Key by key in a loop it was: a title of "__L_ON__" came out as "On".
+        odd = S.build_page("__L_ON__ rev __L_DARK__",
+                           {"parts": 1, "faces": 1, "triangles": 1},
+                           "AAAA", 1, 1, meta={"source": "x.step"})
+        shown = odd.split("<b>")[1].split("</b>")[0]
+        check(shown == "__L_ON__ rev __L_DARK__",
+              "substituted text is not scanned again", shown)
         check("<html lang=\"en\">" in page, "the page declares English")
         check(not re.search(r"[Ѐ-ӿ]", page),
               "no stray non-English text in the page")
