@@ -83,6 +83,25 @@ def main():
               "an axis triad is drawn in the corner")
         check(page.count("line.ax") >= 1 and "corners" in page,
               "and a measurement steps along the axes")
+        # A stray newline inside a JS string breaks the WHOLE script, so the
+        # page draws nothing at all - and Python happily writes it, because
+        # to Python it is just text. One escape lost in transit cost an
+        # afternoon; this is the cheap guard against the next one.
+        script = page.split("<script>")[-1].split("</script>")[0]
+        ragged = []
+        for n, line in enumerate(script.splitlines(), 1):
+            code = line.split("//")[0]
+            code = code.replace("\\'", "").replace('\\"', "")
+            if code.count("'") % 2 or code.count('"') % 2:
+                ragged.append((n, line.strip()[:60]))
+        check(not ragged, "no unbalanced quote in the page's script",
+              "; ".join(f"line {n}: {t}" for n, t in ragged[:3]))
+
+        for want, what in (("toBlob", "the picture goes out through a blob"),
+                           ("createObjectURL", "and a blob URL, not a data one"),
+                           ("paintSvgOnto", "overlays are drawn into it")):
+            check(want in page, what)
+
         check("span*4" in page,
               "the pick ray starts in front of the model, not on the "
               "camera plane")

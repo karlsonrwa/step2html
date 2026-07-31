@@ -94,7 +94,7 @@ else: no projection, no distance, no pivot. Checked against the named views,
 where it is unambiguous: from the top the Z arm collapses to a point, from the
 front the Y arm does and Z stands straight up.
 
-**Save PNG** writes the current view out as a picture. The keys `1`–`8` pick
+**Save PNG** writes out **what is on screen**, not just the triangles: the measurement, its stepped path, the numbers, the centre of rotation and the axis triad are all DOM and SVG, so they are drawn again onto a 2D canvas over the WebGL image, read back off the live elements so the file cannot disagree with the screen. The keys `1`–`8` pick
 the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
 the address bar always names the view on screen, so sending somebody a link to
 one corner of the board is a copy away.
@@ -368,6 +368,20 @@ on a near surface, so that plane can end up inside the model and visible faces
 stop being pickable. Parallel rays hit the same thing wherever they start, so
 moving the origin costs nothing.
 
+**A canvas has to be downloaded through a blob, not a data: URL.** Chrome
+refuses to download a data: URL past about two megabytes, and a full-screen
+shot of a board on a dense display runs to several - so Save PNG quietly did
+nothing at all, with no error anywhere. `toBlob` plus `createObjectURL` has no
+such limit.
+
+**A stray newline inside a JS string breaks the whole page.** Python writes
+the viewer as text and cannot tell; the browser then runs nothing at all, so
+the symptom is a blank page rather than a broken feature, and every control
+looks dead at once. It cost an afternoon of hunting in the renderer for a
+fault that was one lost backslash in a patch. `tests/test_page.py` now counts
+quotes per line of the generated script, and that check has been shown to fail
+on a deliberately broken one.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 
@@ -505,7 +519,7 @@ python gui.py
 где ответ однозначен: сверху луч Z схлопывается в точку, спереди то же делает
 Y, а Z встаёт вертикально.
 
-**Save PNG** сохраняет текущий вид картинкой. Клавиши `1`–`8` — восемь видов,
+**Save PNG** сохраняет **то, что на экране**, а не только треугольники: измерение, его ступенчатый путь, числа, центр вращения и тройка осей — это DOM и SVG, поэтому они дорисовываются на двумерном холсте поверх картинки WebGL, причём считываются с живых элементов, чтобы файл не мог разойтись с экраном. Клавиши `1`–`8` — восемь видов,
 `E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
 всегда называет вид, который на экране, так что отправить кому-то ссылку на
 конкретный угол платы — это скопировать строку.
@@ -783,6 +797,21 @@ HTML-накладка, чья позиция пересчитывается пр
 поверхность, так что эта плоскость может уйти внутрь модели, и видимые грани
 перестают выбираться. Параллельные лучи попадают в одно и то же независимо от
 того, откуда начаты, поэтому перенос начала не стоит ничего.
+
+**Холст нужно отдавать на скачивание через blob, а не через `data:`-ссылку.**
+Chrome отказывается скачивать `data:` длиннее примерно двух мегабайт, а снимок
+платы во весь экран на плотном дисплее весит несколько — поэтому Save PNG
+молча не делал ничего, и нигде никакой ошибки. У `toBlob` с `createObjectURL`
+такого предела нет.
+
+**Случайный перевод строки внутри строкового литерала JS ломает страницу
+целиком.** Python пишет просмотрщик как текст и отличить не может; браузер
+после этого не выполняет вообще ничего, поэтому симптом — пустая страница, а
+не сломанная функция, и разом мёртвыми выглядят все органы управления. Это
+стоило половины дня поисков в отрисовке при том, что причиной был один
+потерянный обратный слеш в правке. `tests/test_page.py` теперь считает кавычки
+по строкам сгенерированного скрипта, и эта проверка показана падающей на
+намеренно сломанном файле.
 
 **Сенсору нужны два указателя.** Телефон не шлёт события колеса вовсе, поэтому
 без обработки двух пальцев масштаба на нём нет никакого.
