@@ -56,7 +56,8 @@ try:
     from OCP.TDataStd import TDataStd_Name
     from OCP.TDF import TDF_Label, TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_Orientation
+    from OCP.TopAbs import (TopAbs_EDGE, TopAbs_FACE, TopAbs_Orientation,
+                            TopAbs_SOLID)
     from OCP.TopExp import TopExp, TopExp_Explorer
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
@@ -69,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -472,6 +473,24 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
         place = part_loc.Transformation()
         # A mirrored placement reverses the winding of every triangle in it.
         mirrored = place.IsNegative()
+        # The colour of the SOLID each face belongs to, which is a level of
+        # the lookup that was missing. XCAF hangs one colour on the solid and
+        # lets its faces inherit it, overriding only the ones that differ - a
+        # real board arrived with its body colour on the solid and 11 of its
+        # 63 faces carrying nothing of their own, so those 11 fell straight
+        # past to the default grey. On that board it was 44% of the surface.
+        by_solid = TopTools_IndexedMapOfShape()
+        solid_rgb = {}
+        exp = TopExp_Explorer(shape, TopAbs_SOLID)
+        while exp.More():
+            solid = exp.Current()
+            exp.Next()
+            rgb = get_color(color_tool, solid, None)
+            if rgb is None:
+                continue
+            for f in _faces(solid):
+                solid_rgb[by_solid.Add(f)] = rgb
+
         # The part's own faces, then any patched face carried beside it.
         jobs = [(f, None) for f in _faces(shape)]
         for piece, patch_rgb in patches:
@@ -489,8 +508,12 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
             flipped = (face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED)
             if mirrored:
                 flipped = not flipped
-            # The face is the one stored in the document, so this hits.
-            rgb = forced or get_color(color_tool, face, part_rgb)
+            # Face, then the solid it belongs to, then the part, then grey.
+            # Every step of that chain is one a real file has needed.
+            rgb = (forced
+                   or get_color(color_tool, face, None)
+                   or solid_rgb.get(by_solid.FindIndex(face))
+                   or part_rgb)
 
             base = len(pos) // 3
             px = []

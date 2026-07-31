@@ -126,6 +126,22 @@ stored shape and *none* of them resolve after `.Moved()`, which paints the
 whole model one flat colour. The location travels alongside and is applied to
 the tessellated points instead.
 
+**A colour can sit on the SOLID rather than on its faces**, and the lookup
+has to go face, then the solid the face belongs to, then the part, then grey.
+XCAF hangs one colour on the solid and lets the faces inherit it, overriding
+only the ones that differ. A real board arrived with its body colour on the
+solid and 11 of its 63 faces carrying nothing of their own: those 11 fell past
+the missing step straight to the default grey, and that was **44% of the
+surface** - the whole board face, rendered light grey while the file plainly
+contained `#1A5924`.
+
+Worth knowing how the fixture for this went wrong twice, because both are easy
+to repeat. Given the same colour as another part, the check passed on that
+other part's colour. Given a part with ONE solid in it, the part-level lookup
+finds the colour by itself and the check passes whether or not the solid is
+ever consulted. It takes two solids, two colours, and no face colours at all -
+and the way to know is to break the fix on purpose and watch the test fail.
+
 **OCCT returns linear colour components.** Read raw, `#B87333` copper arrives
 as `(122, 44, 8)`. They are encoded to sRGB on the way out and the shader
 linearises again before lighting.

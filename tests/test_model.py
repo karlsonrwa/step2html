@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import step_to_html as S
-from fixtures import BODY, PIN, PIN_AT, RIM, coloured_assembly
+from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_B, RIM,
+                      coloured_assembly)
 
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
@@ -52,6 +53,9 @@ def main():
               f"#{RIM[0]:02X}{RIM[1]:02X}{RIM[2]:02X}")
         check(PIN in seen, "a part placed away from the origin keeps its colour",
               f"#{PIN[0]:02X}{PIN[1]:02X}{PIN[2]:02X}")
+        check(PLATE_A in seen and PLATE_B in seen,
+              "two solids in one part keep a colour each",
+              f"A={PLATE_A in seen} B={PLATE_B in seen}")
         check(S.DEFAULT_RGB not in seen,
               "nothing fell back to the default grey")
 
