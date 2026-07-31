@@ -96,6 +96,16 @@ def main():
                 ragged.append((n, line.strip()[:60]))
         check(not ragged, "no unbalanced quote in the page's script",
               "; ".join(f"line {n}: {t}" for n, t in ragged[:3]))
+        # Every element the script reaches for must exist in the markup.
+        # getElementById returns null for one that does not, and the line
+        # after it dies - which is how fail(), of all functions, ended up
+        # throwing on its last line while still showing its message.
+        ids = set(re.findall(r'id="([A-Za-z_0-9]+)"', page))
+        wanted = set(re.findall(r"getElementById\('([A-Za-z_0-9]+)'\)", page))
+        wanted |= set(re.findall(r"querySelector(?:All)?\('#([A-Za-z_0-9]+)",
+                                 page))
+        check(not (wanted - ids), "every element the script asks for exists",
+              ", ".join(sorted(wanted - ids)))
 
         for want, what in (("toBlob", "the picture goes out through a blob"),
                            ("createObjectURL", "and a blob URL, not a data one"),

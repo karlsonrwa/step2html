@@ -412,8 +412,55 @@ the two-pointer case there is no way to zoom on one at all.
 
 ## Reviewed
 
-A full pass over the code on 30 Jul 2026 found eight things, none of which a
-test had caught, and all of which are now fixed and mostly pinned:
+### 31 Jul 2026, at 0.8.0
+
+A second full pass. Three of these are real faults, the rest are the kind of
+thing that becomes one later. Everything is fixed, and the two that could be
+pinned by a test are pinned by a test **that was made to fail first**.
+
+* **`read_step` raised `SystemExit`.** That derives from `BaseException`, so
+  neither `except ConvertError` nor `except Exception` in the worker could
+  catch it: a STEP that OCCT refuses to read killed the child process with
+  nothing said, and the window then reported the only thing it knows about a
+  silent death — "usually a crash inside OCCT", which is both alarming and
+  wrong. It is a `ConvertError` now, and the CLI is unchanged because `main()`
+  already turns one of those into the same exit.
+* **`fail()` threw on its last line.** It ended on `getElementById('hud')`, an
+  id renamed away long ago, which returns `null`. Checked on a page with one
+  payload character flipped: the message does appear — that line comes first —
+  and then `TypeError: Cannot read properties of null`. So anything added
+  after it would silently never have run, in the one function whose whole job
+  is to keep the page's promise about a damaged file.
+* **The view in the address mangled some numbers.** `toPrecision(6)` followed
+  by stripping trailing zeros turns `120000` into `12`. `1200` survives,
+  because its six-digit form is `1200.00` and has a decimal point to stop at;
+  anything from a hundred thousand up has none. The symptom would have been a
+  link that quietly restores a different view. The restore side had the
+  mirror-image fault: its character class had no `+`, so `1.00000e+6` — which
+  the same code produces past a million — could never be read back.
+* **Two copies of "set up a named view",** one behind the menu and one behind
+  the number keys. Identical today, which is the only moment they ever are.
+* **`_mesh_and_count` was dead** — left behind when the repair moved to one
+  face at a time.
+* **The axis triad's corner was written down twice:** once in the stylesheet,
+  once as a constant in the PNG painter. The picture now asks the element
+  where it is, which is the rule the rest of that painter already follows.
+* **`[c1, c2] = querySelectorAll('circle')`** took the two measurement dots by
+  position, and a third circle now exists above them.
+* **The canvas drawing buffer was reallocated on every frame** — assigning
+  `width`/`height` does that even when the number has not changed.
+* **A dragged reading could be left outside a narrowed window,** and an unused
+  variable in `savePng`.
+
+Checked and found sound: every placeholder in the template has a substitution
+and every substitution has a placeholder, nothing in `TEXT` is unused, every id
+the script reaches for exists, and the payload's arrays are where its header
+says they are.
+
+### 30 Jul 2026, at 0.3.0
+
+A full pass over the code found eight things, none of which a test had caught,
+and all of which are now fixed and mostly pinned:
 
 * The progress label said `build 3 of at most 8` while the search would never
   spend more than 6 — two constants doing one job, one of them stale.
@@ -436,10 +483,15 @@ test had caught, and all of which are now fixed and mostly pinned:
 
 ## Known limitations
 
-* The result is a **mesh**, not B-rep. It is for looking at, not for measuring
-  from and not for machining.
-* No model tree, no section planes, no measurement. A 3D PDF in Acrobat has
-  those; this does not.
+* The result is a **mesh**, not B-rep, and not for machining. What that costs a
+  measurement is worth stating exactly: a point taken off a surface is only as
+  true as the mesh under it, which is the deflection the file was built at —
+  0.006 mm on the test board. A point **snapped to a circle's centre** is not,
+  because that centre comes from the B-rep and never passes through the mesh at
+  all. So centre to centre is exact; anything to a surface carries the
+  deflection with it.
+* No model tree and no section planes. A 3D PDF in Acrobat has those; this does
+  not.
 * The page needs `DecompressionStream` and WebGL2: Chrome/Edge 80+, Firefox
   113+, Safari 16.4+. Anything older says so instead of drawing nothing.
 * A size budget costs several builds and up to a minute. `--max-bytes none` is
@@ -868,8 +920,56 @@ Chrome отказывается скачивать `data:` длиннее при
 
 ## Ревью
 
-Полный проход по коду 30 июля 2026 года нашёл восемь вещей, ни одна из которых
-не была поймана тестом; все исправлены и в основном закреплены:
+### 31 июля 2026, на 0.8.0
+
+Второй полный проход. Три пункта — настоящие ошибки, остальные из тех, что
+становятся ошибкой позже. Исправлено всё, а два, которые можно закрепить
+тестом, закреплены тестом, **который сперва заставили упасть**.
+
+* **`read_step` бросал `SystemExit`.** Это наследник `BaseException`, поэтому
+  в рабочем процессе его не ловил ни `except ConvertError`, ни
+  `except Exception`: STEP, который OCCT читать отказался, убивал дочерний
+  процесс молча, а окно сообщало единственное, что оно знает про молчаливую
+  смерть, — «обычно это падение внутри OCCT», что и пугает, и неправда.
+  Теперь это `ConvertError`, а командная строка не изменилась: `main()` и так
+  превращал его в тот же самый выход.
+* **`fail()` падал на своей последней строке.** Она заканчивалась на
+  `getElementById('hud')` — идентификатор давно переименован, и возвращается
+  `null`. Проверено на странице с одним испорченным символом нагрузки:
+  сообщение появляется, потому что эта строка идёт первой, а следом —
+  `TypeError: Cannot read properties of null`. То есть всё, что дописали бы
+  после неё, молча не работало бы — в той самой функции, вся работа которой
+  состоит в том, чтобы сдержать обещание про испорченный файл.
+* **Вид в адресе портил некоторые числа.** `toPrecision(6)` и срезание
+  хвостовых нулей превращают `120000` в `12`. `1200` выживает, потому что в
+  шестизначной записи это `1200.00` и у нуля есть точка, на которой
+  остановиться; у всего от ста тысяч её нет. Симптом был бы такой: ссылка
+  тихо восстанавливает другой вид. На стороне восстановления была зеркальная
+  ошибка: в классе символов не было `+`, поэтому `1.00000e+6` — который тот же
+  код выдаёт после миллиона — прочитать было нельзя.
+* **Две копии «настроить именованный вид»,** одна за меню, другая за
+  цифровыми клавишами. Сегодня одинаковые — а одинаковые они только сегодня.
+* **`_mesh_and_count` был мёртв** — остался с тех пор, как починка перешла на
+  одну грань за раз.
+* **Угол тройки осей записан дважды:** один раз в стилях, второй — константой
+  в рисовальщике PNG. Теперь картинка спрашивает у самого элемента, где он, —
+  по тому же правилу, которому весь остальной рисовальщик и так следует.
+* **`[c1, c2] = querySelectorAll('circle')`** брал две точки измерения по
+  порядку, а над ними теперь есть третий кружок.
+* **Буфер рисования холста перевыделялся каждый кадр** — присваивание
+  `width`/`height` делает это, даже если число не изменилось.
+* **Перетащенную табличку могло оставить за краем суженного окна,** плюс
+  неиспользуемая переменная в `savePng`.
+
+Проверено и оказалось в порядке: у каждого места подстановки в шаблоне есть
+подстановка и наоборот, в `TEXT` нет неиспользуемых строк, все элементы,
+которые ищет скрипт, существуют, а массивы нагрузки лежат ровно там, где
+говорит её заголовок.
+
+### 30 июля 2026, на 0.3.0
+
+Полный проход по коду нашёл восемь вещей, ни одна из которых не была поймана
+тестом; все исправлены и в основном закреплены:
 
 * Подпись прогресса говорила `build 3 of at most 8`, тогда как поиск никогда не
   тратит больше 6 — две константы делали одну работу, и одна отстала.
@@ -893,10 +993,15 @@ Chrome отказывается скачивать `data:` длиннее при
 
 ## Известные ограничения
 
-* Результат — **сетка**, а не B-rep. Он для того, чтобы смотреть, а не чтобы
-  мерить по нему и тем более обрабатывать.
-* Нет дерева модели, нет секущих плоскостей, нет измерений. У 3D PDF в Acrobat
-  это есть, здесь — нет.
+* Результат — **сетка**, а не B-rep, и обрабатывать по нему нельзя. Чего это
+  стоит измерению, лучше сказать точно: точка, взятая с поверхности, верна
+  ровно настолько, насколько верна сетка под ней, то есть с точностью до
+  отклонения, с которым собран файл, — 0.006 мм на тестовой плате. Точка,
+  **привязанная к центру окружности**, — нет: этот центр приходит из B-rep и
+  через сетку не проходит вовсе. Так что от центра до центра — точно, а всё,
+  что упирается в поверхность, несёт на себе отклонение.
+* Нет дерева модели и нет секущих плоскостей. У 3D PDF в Acrobat это есть,
+  здесь — нет.
 * Странице нужны `DecompressionStream` и WebGL2: Chrome/Edge 80+, Firefox 113+,
   Safari 16.4+. Всё, что старше, скажет об этом, а не покажет пустоту.
 * Бюджет размера стоит нескольких сборок и до минуты времени.

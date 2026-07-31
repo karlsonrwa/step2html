@@ -71,7 +71,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -80,6 +80,15 @@ at generation time, because between two files carrying the same number there
 can be a dozen commits of repairs, and the hash is what pins the source when
 somebody sends a file back with a question.
 """
+
+class ConvertError(Exception):
+    """Anything that makes a conversion impossible, said in one sentence.
+
+    Up here because it is raised from the first stage onwards, and an
+    exception class defined below everything that throws it reads as though
+    nothing did.
+    """
+
 
 DEFAULT_RGB = (170, 170, 170)
 
@@ -187,6 +196,15 @@ TEXT = {
 # --------------------------------------------------------------------------- #
 
 def read_step(path: Path):
+    """-> an XCAF document. ConvertError, and never SystemExit.
+
+    SystemExit derives from BaseException, so neither `except ConvertError`
+    nor `except Exception` in the worker catches it: a STEP that OCCT refuses
+    to read killed the child process with nothing said, and the window then
+    reported the one thing it knows about a silent death - "usually a crash
+    inside OCCT" - which is both alarming and wrong. The CLI is unchanged,
+    because main() turns a ConvertError into the same SystemExit it was.
+    """
     app = XCAFApp_Application.GetApplication_s()
     doc = TDocStd_Document(TCollection_ExtendedString("MDTV-XCAF"))
     app.NewDocument(TCollection_ExtendedString("MDTV-XCAF"), doc)
@@ -195,9 +213,9 @@ def read_step(path: Path):
     reader.SetColorMode(True)
     reader.SetNameMode(True)
     if reader.ReadFile(str(path)) != IFSelect_ReturnStatus.IFSelect_RetDone:
-        raise SystemExit(f"could not read {path}")
+        raise ConvertError(f"could not read {path} - is it a STEP file?")
     if not reader.Transfer(doc):
-        raise SystemExit(f"could not transfer {path}")
+        raise ConvertError(f"could not transfer the contents of {path}")
     return doc
 
 
@@ -332,28 +350,13 @@ def _faces(shape):
     return out
 
 
-def _mesh_and_count(shape, linear, angular):
-    """Mesh from scratch; -> areas of the faces left with no triangles.
+def _empty_faces(shape):
+    """Faces the mesher left with no triangles at all, with their areas.
 
     Areas, not a count: four missing slivers of a millionth of a square
-    millimetre and four missing pin tips both read as '4' and only one of
+    millimetre and four missing pin tips both read as "4", and only one of
     them is worth telling anyone about.
     """
-    BRepTools.Clean_s(shape)
-    BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
-    bad = []
-    for face in _faces(shape):
-        tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
-        if tri is not None and tri.NbTriangles():
-            continue
-        props = GProp_GProps()
-        BRepGProp.SurfaceProperties_s(face, props)
-        bad.append(props.Mass())
-    return bad
-
-
-def _empty_faces(shape):
-    """Faces the mesher left with no triangles at all, with their areas."""
     out = []
     for face in _faces(shape):
         tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
@@ -1046,10 +1049,14 @@ const CRC=__CRC__, RAW=__RAW__;
 const MSG={old:"__OLD_BROWSER__",gl:"__NO_WEBGL__",
            unpack:"__UNPACK_FAILED__",crc:"__CRC_FAILED__"};
 const BG={dark:[.078,.090,.110],light:[.933,.945,.961]};
+// Nothing here may throw. It once ended on a getElementById for an id that
+// had been renamed away, which returns null: the message did appear, because
+// that line came first, but the function died on the next one - so anything
+// added after it would silently never have run, in the one function whose
+// whole job is to keep the page's promise about a damaged file.
 function fail(m){document.getElementById('errtext').textContent=m;
   document.getElementById('err').style.display='grid';
-  document.getElementById('cv').style.display='none';
-  document.getElementById('hud').style.display='none';}
+  document.getElementById('cv').style.display='none';}
 const T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;
   for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
 function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)
@@ -1294,7 +1301,12 @@ async function boot(){
       for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];r[i*4+j]=s}return r}
   function draw(){
     const w=cv.clientWidth,h=cv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);
-    cv.width=w*dpr;cv.height=h*dpr;gl.viewport(0,0,cv.width,cv.height);
+    // Only when it has actually changed. Assigning width or height reallocates
+    // the drawing buffer even when the number is the same, and this runs on
+    // every frame of every drag.
+    const bw=Math.round(w*dpr), bh=Math.round(h*dpr);
+    if(cv.width!==bw||cv.height!==bh){ cv.width=bw; cv.height=bh; }
+    gl.viewport(0,0,cv.width,cv.height);
     gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     const a=w/h;
     // Both projections are driven by the SAME cam.dist, and the orthographic
@@ -1602,16 +1614,11 @@ async function boot(){
   // new centre of rotation.
   scrim.addEventListener('pointerdown',e=>{e.stopPropagation();closeMenu();});
   addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
+  // Through showView, not a second copy of it: the menu and the number keys
+  // must not be able to drift into meaning two different things.
   menu.addEventListener('click',e=>{
     const item=e.target.closest('button[data-view]');
-    if(!item) return;
-    cam=home();                       // pivot back to the middle, and refit
-    cam.rot=new Float32Array(VIEWS[+item.dataset.view]);
-    cam.dist=fitDist(cam.rot,Math.max(.2,cv.clientWidth/cv.clientHeight));
-    cam.oh=cam.dist*Math.tan(FOV/2);
-    touched=true;                     // a chosen view is not to be refitted away
-    closeMenu();
-    draw();
+    if(item) showView(+item.dataset.view);
   });
 
   // ---- measuring ------------------------------------------------------ #
@@ -1734,11 +1741,14 @@ async function boot(){
     }
     if(!a){
       mline.querySelectorAll('line.main,circle:not(.snap)')
-           .forEach(e=>e.style.display='none');
+           .forEach(el=>el.style.display='none');
       return;
     }
     const far = b || loose;
-    const [c1,c2]=mline.querySelectorAll('circle'),
+    // Named, not counted: the ring that marks a caught centre is a circle
+    // too, and taking the first two of them by position would break the day
+    // anything is added above these.
+    const [c1,c2]=mline.querySelectorAll('circle:not(.snap)'),
           ln=mline.querySelector('line.main');
     c1.style.display='';
     c1.setAttribute('cx',a[0]); c1.setAttribute('cy',a[1]);
@@ -1818,7 +1828,12 @@ async function boot(){
       }
       if(d>bestD){ bestD=d; best=c; }
     }
-    const L=labelAt||best;
+    // Clamped into the view, so a window narrowed after the label was dragged
+    // does not leave the reading somewhere off the edge. The dragged place
+    // itself is kept as it was, and comes back when there is room again.
+    const L=(labelAt||best).slice();
+    L[0]=Math.max(lw/2+2, Math.min(W-lw/2-2, L[0]));
+    L[1]=Math.max(lh/2+2, Math.min(H-lh/2-2, L[1]));
     mlabel.style.left=L[0]+'px';
     mlabel.style.top=L[1]+'px';
     // The thread starts at the label's own border rather than at its centre,
@@ -1940,7 +1955,6 @@ async function boot(){
     g.drawImage(cv,0,0);
 
     if(marker.classList.contains('on')){
-      const st=getComputedStyle(marker);
       const x=(parseFloat(marker.style.left)||0)*k,
             y=(parseFloat(marker.style.top)||0)*k;
       g.strokeStyle=getComputedStyle(marker.querySelector('i')).borderTopColor;
@@ -1951,7 +1965,11 @@ async function boot(){
                      g.moveTo(x,y-13*k); g.lineTo(x,y+13*k); g.stroke();
     }
     if(mline.classList.contains('on')) paintSvgOnto(g,mline,0,0,k);
-    paintSvgOnto(g,axesSvg,12,cv.clientHeight-100,k);
+    // Where the triad actually is, asked of the element rather than worked
+    // out again from the stylesheet: a corner written down twice is a corner
+    // that moves in one place and not the other.
+    const ar=axesSvg.getBoundingClientRect(), cr=cv.getBoundingClientRect();
+    paintSvgOnto(g,axesSvg,ar.left-cr.left,ar.top-cr.top,k);
     if(mlabel.classList.contains('on')){
       const st=getComputedStyle(mlabel);
       const size=(parseFloat(st.fontSize)||12)*k;
@@ -1982,12 +2000,14 @@ async function boot(){
     },'image/png');
   }
   document.getElementById('png').addEventListener('click',savePng);
+  // One named view, set up once: the menu and the number keys both come here.
   function showView(i){
-    cam=home();
+    cam=home();                       // pivot back to the middle, and refit
     cam.rot=new Float32Array(VIEWS[i]);
     cam.dist=fitDist(cam.rot,Math.max(.2,cv.clientWidth/cv.clientHeight));
     cam.oh=cam.dist*Math.tan(FOV/2);
-    touched=true; closeMenu(); draw();
+    touched=true;                     // a chosen view is not to be refitted away
+    closeMenu(); draw();
   }
   addEventListener('keydown',e=>{
     if(e.ctrlKey||e.altKey||e.metaKey) return;
@@ -2012,7 +2032,13 @@ async function boot(){
   function rememberView(){
     clearTimeout(hashTimer);
     hashTimer=setTimeout(()=>{
-      const n=v=>(+v).toPrecision(6).replace(/0+$/,'').replace(/\.$/,'');
+      // Trailing zeros go only from a FRACTION. Stripping them off the whole
+      // string turned 120000 into 12 - toPrecision(6) gives that one no
+      // decimal point to stop at, unlike 1200, which comes back as "1200.00"
+      // and survives. The symptom would have been a link that quietly
+      // restores a different view.
+      const n=v=>(+v).toPrecision(6).replace(/(\.\d*?)0+$/,'$1')
+                                    .replace(/\.$/,'');
       const bits=[...cam.rot.slice(0,3),...cam.rot.slice(4,7),
                   ...cam.rot.slice(8,11), cam.dist, cam.oh, cam.px, cam.py,
                   ...cam.pivot].map(n).join(',');
@@ -2020,7 +2046,9 @@ async function boot(){
     },400);
   }
   (function restoreView(){
-    const m=/^#v=([-\d.,e]+)$/.exec(location.hash);
+    // "+" belongs in there: past a million toPrecision returns "1.00000e+6",
+    // and a class without it rejects the page's own output.
+    const m=/^#v=([-+\d.,e]+)$/.exec(location.hash);
     if(!m) return;
     const p=m[1].split(',').map(Number);
     // Nine for the rotation, then dist, oh, px, py, and three for the pivot.
@@ -2177,10 +2205,6 @@ def _js(s: str) -> str:
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-
-class ConvertError(Exception):
-    """Anything that makes a conversion impossible, said in one sentence."""
-
 
 @dataclass(frozen=True)
 class Options:

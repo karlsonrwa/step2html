@@ -93,6 +93,25 @@ def main():
               "the automatic deflection is inside its clamp",
               f"{deflection:.4g} mm")
 
+        # A file that is not a STEP has to come back as a ConvertError and
+        # nothing else. SystemExit derives from BaseException, so the worker's
+        # "except Exception" would let it straight through: the child process
+        # died silently and the window blamed OCCT for a crash it never had.
+        junk = Path(tmp) / "not-a-step.step"
+        junk.write_text("this is not a STEP file at all\n", encoding="utf-8")
+        try:
+            S.convert(S.Options(step=str(junk)))
+            raised = "nothing"
+        except S.ConvertError as exc:
+            raised = "ConvertError"
+            detail = str(exc)
+        except BaseException as exc:            # noqa: BLE001 - that is the point
+            raised = type(exc).__name__
+            detail = str(exc)
+        check(raised == "ConvertError",
+              "an unreadable STEP raises ConvertError, catchable by the worker",
+              f"{raised}: {detail[:60]}")
+
     return 1 if FAILURES else 0
 
 
