@@ -85,6 +85,15 @@ board, against 299 kB for an id on every triangle. A ray cast per mouse move
 is 7.6 ms on a 300k-triangle board, throttled to one per 16 ms and only while
 measuring.
 
+After the second click the measurement also draws the **stepped path** a CAD
+viewer draws: from the first point along X, then Y, then Z to the second, each
+leg in its own colour and carrying its own number. A leg of no length is not
+drawn at all. The same three colours label the **axis triad** in the bottom
+left corner — X red, Y green, Z blue — which shows orientation and nothing
+else: no projection, no distance, no pivot. Checked against the named views,
+where it is unambiguous: from the top the Z arm collapses to a point, from the
+front the Y arm does and Z stands straight up.
+
 **Save PNG** writes the current view out as a picture. The keys `1`–`8` pick
 the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
 the address bar always names the view on screen, so sending somebody a link to
@@ -350,6 +359,15 @@ wrong, and each view reads as what it is. Measured on a 160 × 80 board: top
 and bottom fill 47.6 % of the frame with a 2:1 outline, left and right 1.8 %
 with a 3.76:1 one, the isometrics 22.1 % at 1.69:1.
 
+**The orthographic pick ray must start in front of the model**, not on the
+camera plane. On the camera plane anything nearer to the viewer sits behind
+the ray's origin and is discarded by the `t > 0` test — while still being
+drawn, because the near clipping plane is `span*4` further back. `cam.dist`
+shrinks both when the wheel turns and when a click puts the centre of rotation
+on a near surface, so that plane can end up inside the model and visible faces
+stop being pickable. Parallel rays hit the same thing wherever they start, so
+moving the origin costs nothing.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 
@@ -477,6 +495,15 @@ python gui.py
 299 КБ, если хранить идентификатор у каждого треугольника. Бросок луча на
 каждое движение мыши — 7.6 мс на 300 тысячах треугольников, не чаще раза в
 16 мс и только в режиме измерения.
+
+После второго щелчка измерение рисует ещё и **ступенчатый путь**, как это
+делает CAD: от первой точки вдоль X, затем Y, затем Z ко второй, каждый
+отрезок своим цветом и со своим числом. Отрезок нулевой длины не рисуется
+вовсе. Те же три цвета у **тройки осей** в левом нижнем углу — X красная, Y
+зелёная, Z синяя, — которая показывает ориентацию и больше ничего: ни
+проекции, ни расстояния, ни центра вращения. Проверена по именованным видам,
+где ответ однозначен: сверху луч Z схлопывается в точку, спереди то же делает
+Y, а Z встаёт вертикально.
 
 **Save PNG** сохраняет текущий вид картинкой. Клавиши `1`–`8` — восемь видов,
 `E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
@@ -747,6 +774,15 @@ HTML-накладка, чья позиция пересчитывается пр
 негде, и каждый вид читается как то, чем он является. Замерено на плате
 160 × 80: сверху и снизу занимают 47.6 % кадра при габарите 2:1, слева и
 справа — 1.8 % при 3.76:1, изометрии — 22.1 % при 1.69:1.
+
+**Ортогональный луч выбора обязан начинаться перед моделью**, а не на
+плоскости камеры. На плоскости камеры всё, что ближе к зрителю, оказывается
+позади начала луча и отбрасывается условием `t > 0` — но при этом рисуется,
+потому что ближняя плоскость отсечения отнесена на `span*4` назад. `cam.dist`
+уменьшается и от колеса, и когда щелчок переносит центр вращения на близкую
+поверхность, так что эта плоскость может уйти внутрь модели, и видимые грани
+перестают выбираться. Параллельные лучи попадают в одно и то же независимо от
+того, откуда начаты, поэтому перенос начала не стоит ничего.
 
 **Сенсору нужны два указателя.** Телефон не шлёт события колеса вовсе, поэтому
 без обработки двух пальцев масштаба на нём нет никакого.

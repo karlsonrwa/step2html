@@ -70,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -828,8 +828,21 @@ PAGE = r"""<!doctype html>
   #mline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
     display:none}
   #mline.on{display:block}
-  #mline line{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+  #mline line.main{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
   #mline circle{fill:var(--accent)}
+  /* One colour per axis, and the same three everywhere: the triad in the
+     corner and the stepped path of a measurement say the same thing. */
+  .x{stroke:#e0483a;fill:#e0483a}
+  .y{stroke:#2f9e52;fill:#2f9e52}
+  .z{stroke:#3b7ddd;fill:#3b7ddd}
+  #mline line.ax{stroke-width:1.2;stroke-dasharray:3 3}
+  #mline text.ax{font-size:11px;stroke:none;paint-order:stroke;
+    stroke-width:3px;stroke:var(--bg)}
+  #axes{position:absolute;left:12px;bottom:12px;width:88px;height:88px;
+    pointer-events:none}
+  #axes line{stroke-width:1.8;stroke-linecap:round}
+  #axes text{font-size:11px;font-weight:600;stroke:none;text-anchor:middle;
+    dominant-baseline:middle}
   #mlabel{position:absolute;transform:translate(-50%,-50%);pointer-events:none;
     display:none;padding:4px 8px;border-radius:4px;font-size:12px;
     line-height:1.35;text-align:center;white-space:pre;color:var(--strong);
@@ -918,7 +931,13 @@ PAGE = r"""<!doctype html>
 </div>
 <div id="view"><canvas id="cv"></canvas>
 <div id="pivot"><i></i></div>
-<svg id="mline"><line/><circle r="3.5"/><circle r="3.5"/></svg>
+<svg id="mline">
+<line class="ax x"/><line class="ax y"/><line class="ax z"/>
+<line class="main"/><circle r="3.5"/><circle r="3.5"/>
+<text class="ax x"/><text class="ax y"/><text class="ax z"/></svg>
+<svg id="axes" viewBox="0 0 88 88">
+<line class="x"/><line class="y"/><line class="z"/>
+<text class="x">X</text><text class="y">Y</text><text class="z">Z</text></svg>
 <div id="mlabel"></div></div>
 <dialog id="helpbox">
 <h2>__L_HELP_TITLE__</h2>
@@ -1266,6 +1285,7 @@ async function boot(){
       marker.style.top=((.5-py_*.5)*h)+'px';
     }
     paintMeasure();
+    paintAxes();
     rememberView();
     if(lines){
       // LEQUAL as well: a line sampled on the true curve and the chords of
@@ -1339,7 +1359,15 @@ async function boot(){
     // cam.oh - the same number the projection uses. Reading it off cam.dist
     // instead was a ray cast at the wrong scale, which picked the wrong
     // triangle and took the clipping planes with it.
-    const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, 0] : [0,0,0];
+    // The orthographic ray starts WELL IN FRONT of the model, not on the
+    // camera plane. On the camera plane anything nearer to the viewer is
+    // behind the ray's origin and is thrown away by the t>0 test - while
+    // still being drawn, because the near clipping plane sits span*4 further
+    // back. cam.dist shrinks both when the wheel is turned and when a click
+    // puts the centre of rotation on a near surface, so that plane can end
+    // up inside the model. Parallel rays hit the same thing wherever they
+    // start, so moving the origin costs nothing.
+    const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, span*4] : [0,0,0];
     const dv = ortho ? [0,0,-1] : [nx*t*a, ny*t, -1];
     const o=toModel(ov,false), d=toModel(dv,true);
     let best=Infinity, hit=null, hitTri=-1;
@@ -1448,6 +1476,33 @@ async function boot(){
     if(hoverFace<0 && !cursor) return;
     hoverFace=-1; hoverPoint=null; cursor=null; draw();
   });
+  // ---- which way is which -------------------------------------------- #
+  const axesSvg=document.getElementById('axes');
+  function paintAxes(){
+    // Directions only, so this is the rotation and nothing else - no
+    // projection, no distance, no pivot. Drawn back to front so the arm
+    // pointing away from the viewer goes under the ones in front of it.
+    const O=44, L=30;
+    const arms=[0,1,2].map(i=>{
+      const e=[0,0,0]; e[i]=1;
+      return {i, x:cam.rot[0]*e[0]+cam.rot[4]*e[1]+cam.rot[8]*e[2],
+                 y:cam.rot[1]*e[0]+cam.rot[5]*e[1]+cam.rot[9]*e[2],
+                 z:cam.rot[2]*e[0]+cam.rot[6]*e[1]+cam.rot[10]*e[2]};
+    }).sort((p,q)=>p.z-q.z);
+    for(const arm of arms){
+      const cls=['x','y','z'][arm.i];
+      const ln=axesSvg.querySelector('line.'+cls),
+            tx=axesSvg.querySelector('text.'+cls);
+      const ex=O+arm.x*L, ey=O-arm.y*L;          // y is up on screen
+      ln.setAttribute('x1',O); ln.setAttribute('y1',O);
+      ln.setAttribute('x2',ex); ln.setAttribute('y2',ey);
+      tx.setAttribute('x',O+arm.x*(L+8)); tx.setAttribute('y',O-arm.y*(L+8));
+      // Last drawn is on top, so re-appending in sorted order does the
+      // depth sorting that SVG has no z-index for.
+      axesSvg.appendChild(ln); axesSvg.appendChild(tx);
+    }
+  }
+
   // ---- the view cube ------------------------------------------------- #
   const cube=document.getElementById('cube'),
         menu=document.getElementById('views'),
@@ -1516,9 +1571,12 @@ async function boot(){
                      cursor[1]-cv.getBoundingClientRect().top] : null;
     mline.classList.toggle('on', !!a);
     mlabel.classList.toggle('on', !!(a&&b));
+    if(!b) mline.querySelectorAll('line.ax,text.ax')
+             .forEach(e=>e.style.display='none');
     if(!a) return;
     const far = b || loose;
-    const [c1,c2]=mline.querySelectorAll('circle'), ln=mline.querySelector('line');
+    const [c1,c2]=mline.querySelectorAll('circle'),
+          ln=mline.querySelector('line.main');
     c1.setAttribute('cx',a[0]); c1.setAttribute('cy',a[1]);
     c2.setAttribute('cx',(far||a)[0]); c2.setAttribute('cy',(far||a)[1]);
     c2.style.display=b?'':'none';
@@ -1542,6 +1600,29 @@ async function boot(){
                       +`${g('X',dx)}   ${g('Y',dy)}   ${g('Z',dz)}`;
     mlabel.style.left=((a[0]+b[0])/2)+'px';
     mlabel.style.top=((a[1]+b[1])/2-26)+'px';
+
+    // The stepped path, the way a CAD viewer shows a distance in space: from
+    // the first point along X, then along Y, then along Z to the second. Each
+    // leg carries its own axis colour and its own number, and a leg of no
+    // length is not drawn at all rather than drawn as a dot.
+    const P=ends[0], Q=ends[1];
+    const corners=[P, [Q[0],P[1],P[2]], [Q[0],Q[1],P[2]], Q].map(toScreen);
+    const legs=mline.querySelectorAll('line.ax'),
+          tags=mline.querySelectorAll('text.ax');
+    const deltas=[dx,dy,dz];
+    for(let i=0;i<3;i++){
+      const s0=corners[i], s1=corners[i+1];
+      const worth = s0 && s1 && Math.abs(deltas[i])>5e-3;
+      legs[i].style.display = worth ? '' : 'none';
+      tags[i].style.display = worth ? '' : 'none';
+      if(!worth) continue;
+      legs[i].setAttribute('x1',s0[0]); legs[i].setAttribute('y1',s0[1]);
+      legs[i].setAttribute('x2',s1[0]); legs[i].setAttribute('y2',s1[1]);
+      tags[i].setAttribute('x',(s0[0]+s1[0])/2);
+      tags[i].setAttribute('y',(s0[1]+s1[1])/2-4);
+      tags[i].setAttribute('text-anchor','middle');
+      tags[i].textContent=Math.abs(deltas[i]).toFixed(2);
+    }
   }
 
   // ---- keys, a picture of the view, and the view in the address ------- #

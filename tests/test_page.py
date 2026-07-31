@@ -79,6 +79,13 @@ def main():
         # turns the model or moves the centre of rotation.
         check('id="scrim"' in page and "closeMenu" in page,
               "and a click outside is swallowed rather than passed through")
+        check('id="axes"' in page and "paintAxes" in page,
+              "an axis triad is drawn in the corner")
+        check(page.count("line.ax") >= 1 and "corners" in page,
+              "and a measurement steps along the axes")
+        check("span*4" in page,
+              "the pick ray starts in front of the model, not on the "
+              "camera plane")
 
         # ---- the file says what made it ------------------------------- #
         check(f'name="generator" content="step2html {S.__version__}'
