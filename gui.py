@@ -296,6 +296,14 @@ class App:
         if not opts.step:
             self.log("error: pick a STEP file first")
             return
+        # Show the name that will actually be written, before writing it. The
+        # rule lives in core.html_target and is applied there too, so the field
+        # cannot end up promising something the pipeline does not do - a name
+        # typed without ".html" gets one either way.
+        target = str(core.html_target(opts.out, Path(opts.step)))
+        if target != opts.out:
+            self.out_path.set(target)
+            opts = self.options()
 
         self.clear_log()
         self.log(f"Converting {Path(opts.step).name}", "success")

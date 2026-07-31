@@ -78,6 +78,30 @@ def main():
               app.out_path.get())
         app.set_step(str(step))
 
+        # A name typed by hand usually has no ".html" on it. One rule, in
+        # core, and the window applies the same one so the field cannot
+        # promise a name the pipeline does not write. Appended and never
+        # substituted: a dot that is not an extension is somebody's revision.
+        folder = Path(tmp) / "output folder"
+        folder.mkdir()
+        for typed, want, why in (
+                ("board", "board.html", "a bare name gets .html"),
+                ("board.html", "board.html", "one that has it is left alone"),
+                ("board.HTML", "board.HTML", "whatever case it is written in"),
+                ("board.htm", "board.htm", "and .htm is an HTML file too"),
+                ("board rev.3", "board rev.3.html",
+                 "a dot that is not an extension survives"),
+                (str(folder), str(folder / "fixture.html"),
+                 "an existing folder takes the STEP's own name")):
+            got = core.html_target(
+                typed if typed.startswith(str(folder)) else str(Path(tmp) / typed),
+                step)
+            want_full = (want if want.startswith(str(folder))
+                         else str(Path(tmp) / want))
+            check(str(got) == want_full, why, str(got))
+        check(str(core.html_target("", step)) == str(step.with_suffix(".html")),
+              "and an empty field still means beside the STEP")
+
         app.budget_mode.set("auto")
         check(app.options().max_bytes == "auto", "budget 'auto' reaches Options")
         app.budget_mode.set("none")
@@ -90,8 +114,10 @@ def main():
         app.auto_deflection.set(True)
         app.open_when_done.set(False)
         app.read_only.set(False)
+        # Typed WITHOUT an extension on purpose: this is the whole trip, from
+        # a field a user filled in by hand to a file on disk.
         out = Path(tmp) / "from the window.html"
-        app.out_path.set(str(out))
+        app.out_path.set(str(Path(tmp) / "from the window"))
 
         # ---- press Generate, and pump until the child answers ---------- #
         app.generate()

@@ -71,7 +71,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -2269,6 +2269,34 @@ class Options:
     read_only: bool = False
 
 
+HTML_SUFFIXES = (".html", ".htm")
+
+
+def html_target(out: str, step: Path) -> Path:
+    """Where the page really goes, from what was asked for and the STEP.
+
+    One rule, in one place, because the CLI and the window both come through
+    it - a second copy in the window would eventually promise a name the
+    pipeline does not write.
+
+    A name typed without an extension gets one. Appended, never substituted:
+    with_suffix would turn "board rev.3" into "board rev.html" and throw the
+    revision away, so a dot that is not an extension is left where it is and
+    "board rev.3.html" comes out. An .htm is already an HTML file and is kept
+    as typed. And a path that is an existing FOLDER takes the STEP's own name
+    inside it, rather than becoming a file sitting next to that folder.
+    """
+    typed = str(out).strip()
+    if not typed:
+        return step.with_suffix(".html")
+    p = Path(typed)
+    if not p.name or p.is_dir():
+        return p / f"{step.stem}.html"
+    if p.suffix.lower() in HTML_SUFFIXES:
+        return p
+    return p.with_name(p.name + ".html")
+
+
 @dataclass
 class Report:
     out: Path
@@ -2307,7 +2335,9 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     step = Path(opts.step)
     if not step.is_file():
         raise ConvertError(f"No such file: {step}")
-    out = Path(opts.out) if opts.out else step.with_suffix(".html")
+    out = html_target(opts.out, step)
+    if opts.out and out != Path(opts.out):
+        log(f"Writing {out.name}")
     title = opts.title or step.stem
 
     def phase(index, build_no, planned, done=0, total=1, detail=""):

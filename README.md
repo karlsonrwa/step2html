@@ -184,6 +184,16 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `--no-repair` | do not try to rescue faces the mesher leaves empty |
 | `--read-only` | set the read-only attribute, so Notepad refuses to save over it |
 
+**The output name is finished for you.** A name given without an extension
+gets `.html`, and it is **appended, never substituted** — `board rev.3` becomes
+`board rev.3.html`, because `with_suffix` would have made it `board rev.html`
+and thrown the revision away. A name that already ends in `.html` or `.htm` is
+left exactly as it was typed, whatever case it is in, and a path that is an
+existing folder takes the STEP's own name inside it rather than becoming a file
+sitting next to that folder. The rule lives in one function that both front
+ends call, so the window's field cannot promise a name the pipeline does not
+write.
+
 The default budget refines the mesh as far as it can while the `.html` stays
 smaller than the `.step` it came from.
 
@@ -700,6 +710,16 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `--max-bytes` | бюджет размера, по умолчанию `auto` = размер самого STEP; `none` снимает |
 | `--no-repair` | не пытаться спасать грани, которые мешер оставил пустыми |
 | `--read-only` | поставить атрибут «только для чтения», чтобы блокнот отказался сохранять поверх |
+
+**Имя выходного файла дописывается за вас.** Имя, заданное без расширения,
+получает `.html`, причём расширение **добавляется, а не подменяется**:
+`board rev.3` станет `board rev.3.html`, потому что `with_suffix` сделал бы из
+него `board rev.html` и выбросил номер ревизии. Имя, которое уже кончается на
+`.html` или `.htm`, остаётся ровно таким, как его написали, в любом регистре, а
+путь, который указывает на существующую папку, забирает внутрь неё собственное
+имя STEP, вместо того чтобы стать файлом рядом с этой папкой. Правило живёт в
+одной функции, которую вызывают оба интерфейса, поэтому поле в окне не может
+обещать имя, которого конвейер не запишет.
 
 Бюджет по умолчанию мельчит сетку настолько, насколько это возможно, пока
 `.html` остаётся меньше `.step`, из которого он сделан.
