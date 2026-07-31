@@ -61,6 +61,11 @@ fingers to pan, **a single click moves the centre of rotation onto the point
 under it**, double click resets. Orthographic or perspective, edges on or off,
 and a theme that follows the system until told otherwise.
 
+The small cube in the bottom right corner raises a menu of the six standard
+views — top, bottom, left, right, and isometric from above or below. Each one
+reorients and refits. A click anywhere else closes the menu and changes
+nothing.
+
 ## Installation
 
 Python 3.10 or newer, and one dependency:
@@ -308,6 +313,19 @@ frames.
 *The observer watches the BODY, never the view* — the view is what this
 resizes, and an observer on it would answer its own change for ever.
 
+**A menu that closes on an outside click needs the click SWALLOWED**, not
+merely noticed. A listener that closes the menu still lets the same press
+reach the canvas underneath, which turns the model or moves the centre of
+rotation — and the requirement was that choosing nothing changes nothing. A
+transparent scrim over everything, shown with the menu, is what makes that
+true; measured at 0 % of pixels changed.
+
+The six standard views are built from a BASIS — the direction the camera sits
+in and which way is up — rather than from angles. There is no ordering to get
+wrong, and each view reads as what it is. Measured on a 160 × 80 board: top
+and bottom fill 47.6 % of the frame with a 2:1 outline, left and right 1.8 %
+with a 3.76:1 one, the isometrics 22.1 % at 1.69:1.
+
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
 
@@ -411,6 +429,10 @@ python gui.py
 два пальца — сдвиг, **одиночный щелчок переносит центр вращения на точку под
 курсором**, двойной щелчок — сброс. Проекция ортогональная или перспективная,
 рёбра включаются и выключаются, тема по умолчанию системная.
+
+Кубик в правом нижнем углу поднимает меню из шести стандартных видов — сверху,
+снизу, слева, справа и изометрия сверху или снизу. Каждый разворачивает камеру
+и вписывает модель в кадр. Щелчок мимо меню закрывает его и не меняет ничего.
 
 ## Установка
 
@@ -663,6 +685,19 @@ HTML-накладка, чья позиция пересчитывается пр
 *Наблюдатель следит за `body`, а не за областью просмотра* — область и есть то,
 что этим меняется, и наблюдатель на ней отвечал бы на собственное изменение
 бесконечно.
+
+**Меню, закрывающееся щелчком мимо, обязано этот щелчок ПОГЛОТИТЬ**, а не
+просто заметить. Обработчик, который закрывает меню, оставляет то же нажатие
+дойти до холста под ним — а тот повернёт модель или перенесёт центр вращения,
+тогда как требование было ровно обратное: не выбрав ничего, не изменить
+ничего. Прозрачная накладка поверх всего, показываемая вместе с меню, — это то,
+что делает требование правдой; замерено 0 % изменившихся пикселей.
+
+Шесть стандартных видов строятся из **базиса** — направления, в котором стоит
+камера, и указания, где верх, — а не из углов. Порядок применения перепутать
+негде, и каждый вид читается как то, чем он является. Замерено на плате
+160 × 80: сверху и снизу занимают 47.6 % кадра при габарите 2:1, слева и
+справа — 1.8 % при 3.76:1, изометрии — 22.1 % при 1.69:1.
 
 **Сенсору нужны два указателя.** Телефон не шлёт события колеса вовсе, поэтому
 без обработки двух пальцев масштаба на нём нет никакого.

@@ -70,7 +70,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -163,6 +163,13 @@ TEXT = {
     "about_source": "Source",
     "about_mesh": "Mesh",
     "about_made": "Made",
+    "views": "Standard views",
+    "view_top": "Top",
+    "view_bottom": "Bottom",
+    "view_left": "Left",
+    "view_right": "Right",
+    "view_iso_top": "Isometric, top",
+    "view_iso_bottom": "Isometric, bottom",
 }
 
 
@@ -810,6 +817,30 @@ PAGE = r"""<!doctype html>
   dialog dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 18px}
   dialog dt{color:var(--strong)}
   dialog dd{margin:0;opacity:.7}
+  /* The view cube, and the menu it raises. Both are fixed to the viewport,
+     like the help button, and both need a stacking order for the same reason
+     it does: the canvas comes later in the markup and would paint over them. */
+  #cube{position:fixed;right:10px;bottom:10px;z-index:5;width:38px;height:38px;
+    display:grid;place-items:center;color:var(--fg);background:var(--panel);
+    border:0;border-radius:5px;cursor:pointer;padding:0}
+  #cube:hover{background:var(--hover);color:var(--strong)}
+  #cube:active{background:var(--press)}
+  #cube:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  /* Opens UPWARD: the button sits at the bottom of the window, and a menu
+     dropping from it would go off the screen. */
+  #views{position:fixed;right:10px;bottom:54px;z-index:6;display:none;
+    flex-direction:column;min-width:170px;padding:5px;border-radius:6px;
+    background:var(--panel);border:1px solid var(--line);
+    box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  #views.open{display:flex}
+  #views button{font:inherit;font-size:12px;text-align:left;color:var(--fg);
+    background:none;border:0;border-radius:4px;padding:6px 10px;cursor:pointer;
+    white-space:nowrap}
+  #views button:hover{background:var(--hover);color:var(--strong)}
+  /* Swallows the click that closes the menu, so it cannot also reach the
+     model underneath and turn it or move the centre of rotation. */
+  #scrim{position:fixed;inset:0;z-index:4;display:none}
+  #scrim.open{display:block}
   dialog hr{border:0;border-top:1px solid var(--line);margin:16px 0 12px}
   dialog .about{font-size:12px;opacity:.75}
   dialog .about dt{color:var(--fg);font-weight:400}
@@ -856,6 +887,22 @@ PAGE = r"""<!doctype html>
 <p class="made">__M_VERSION__</p>
 <button class="close" type="button">__L_CLOSE__</button>
 </dialog>
+<div id="scrim"></div>
+<button id="cube" type="button" title="__L_VIEWS__" aria-label="__L_VIEWS__">
+<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" fill="none"
+     stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+<path d="M12 2.5 L20.5 7.2 L12 11.9 L3.5 7.2 Z" fill="currentColor"
+      fill-opacity=".22"/>
+<path d="M3.5 7.2 L12 11.9 L12 21.5 L3.5 16.8 Z"/>
+<path d="M20.5 7.2 L12 11.9 L12 21.5 L20.5 16.8 Z"/></svg></button>
+<div id="views" role="menu">
+<button type="button" data-view="0" role="menuitem">__L_VIEW_TOP__</button>
+<button type="button" data-view="1" role="menuitem">__L_VIEW_BOTTOM__</button>
+<button type="button" data-view="2" role="menuitem">__L_VIEW_LEFT__</button>
+<button type="button" data-view="3" role="menuitem">__L_VIEW_RIGHT__</button>
+<button type="button" data-view="4" role="menuitem">__L_VIEW_ISO_TOP__</button>
+<button type="button" data-view="5" role="menuitem">__L_VIEW_ISO_BOTTOM__</button>
+</div>
 <div id="err"><p id="errtext"></p></div>
 <script type="text/plain" id="geo">__DATA__</script>
 <script>
@@ -1017,6 +1064,31 @@ async function boot(){
     return d*1.04;
   }
   const HOME_ROT=mul(rotX(.95),rotY(-.6));   // the view it opens at
+
+  // The named views, each as the direction the CAMERA sits in, in model
+  // coordinates, plus which way is up. Building the rotation from a basis
+  // rather than from a pair of angles keeps them all honest at once: no
+  // ordering to get wrong, and a view reads as what it is.
+  function basis(d, up){
+    const n=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;
+                return [v[0]/l,v[1]/l,v[2]/l];};
+    const cr=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2],
+                     a[0]*b[1]-a[1]*b[0]];
+    const z=n(d), x=n(cr(up,z)), y=cr(z,x);
+    // Rows of the matrix are the axes: it takes model coordinates to view.
+    return new Float32Array([x[0],y[0],z[0],0,
+                             x[1],y[1],z[1],0,
+                             x[2],y[2],z[2],0,
+                             0,0,0,1]);
+  }
+  const VIEWS=[
+    basis([0,0,1],  [0,1,0]),      // top
+    basis([0,0,-1], [0,1,0]),      // bottom
+    basis([-1,0,0], [0,0,1]),      // left
+    basis([1,0,0],  [0,0,1]),      // right
+    basis([1,-1,1], [0,0,1]),      // isometric from above
+    basis([1,-1,-1],[0,0,-1]),     // isometric from below
+  ];
   const HOME={dist:0,px:0,py:0};
   // ||1 on both sides: a canvas that has not been laid out yet reports 0,
   // and 0/0 is NaN, which would put the camera nowhere and draw a blank
@@ -1266,6 +1338,37 @@ async function boot(){
   cv.addEventListener('wheel',e=>{e.preventDefault();touched=true;
     setDist(cam.dist*Math.exp(e.deltaY*.0012)); draw()},{passive:false});
   cv.addEventListener('contextmenu',e=>e.preventDefault());
+  // ---- the view cube ------------------------------------------------- #
+  const cube=document.getElementById('cube'),
+        menu=document.getElementById('views'),
+        scrim=document.getElementById('scrim');
+  function closeMenu(){
+    menu.classList.remove('open');
+    scrim.classList.remove('open');
+  }
+  cube.addEventListener('click',e=>{
+    e.stopPropagation();
+    const open=menu.classList.toggle('open');
+    scrim.classList.toggle('open',open);
+  });
+  // A click anywhere else lands on the scrim, which closes the menu and goes
+  // no further - the requirement is that the view does NOT change, and the
+  // canvas underneath would otherwise take the same click as a turn or as a
+  // new centre of rotation.
+  scrim.addEventListener('pointerdown',e=>{e.stopPropagation();closeMenu();});
+  addEventListener('keydown',e=>{if(e.key==='Escape')closeMenu();});
+  menu.addEventListener('click',e=>{
+    const item=e.target.closest('button[data-view]');
+    if(!item) return;
+    cam=home();                       // pivot back to the middle, and refit
+    cam.rot=new Float32Array(VIEWS[+item.dataset.view]);
+    cam.dist=fitDist(cam.rot,Math.max(.2,cv.clientWidth/cv.clientHeight));
+    cam.oh=cam.dist*Math.tan(FOV/2);
+    touched=true;                     // a chosen view is not to be refitted away
+    closeMenu();
+    draw();
+  });
+
   // Refit on resize, but only until the user has moved the camera themselves.
   cv.addEventListener('dblclick',()=>{touched=false;cam=home();draw()});
   // Put the bar wherever it leaves the SQUAREST view behind.
@@ -1376,6 +1479,13 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__L_ABOUT_SOURCE__": html.escape(TEXT["about_source"]),
         "__L_ABOUT_MESH__": html.escape(TEXT["about_mesh"]),
         "__L_ABOUT_MADE__": html.escape(TEXT["about_made"]),
+        "__L_VIEWS__": html.escape(TEXT["views"]),
+        "__L_VIEW_TOP__": html.escape(TEXT["view_top"]),
+        "__L_VIEW_BOTTOM__": html.escape(TEXT["view_bottom"]),
+        "__L_VIEW_LEFT__": html.escape(TEXT["view_left"]),
+        "__L_VIEW_RIGHT__": html.escape(TEXT["view_right"]),
+        "__L_VIEW_ISO_TOP__": html.escape(TEXT["view_iso_top"]),
+        "__L_VIEW_ISO_BOTTOM__": html.escape(TEXT["view_iso_bottom"]),
         "__DATA__": data,          # base64 cannot contain < or &
     }
     page = PAGE

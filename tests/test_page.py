@@ -62,6 +62,13 @@ def main():
               "and the centre of rotation is shown where it landed")
         check("cam.rot" in page and "cam.pitch" not in page,
               "orientation is a matrix, so rotation has no stop in it")
+        check(page.count('data-view=') == 6 and 'id="cube"' in page,
+              "the view cube offers six standard views")
+        # The scrim is the whole of "a click outside closes the menu and the
+        # view does not change": without it the click reaches the canvas and
+        # turns the model or moves the centre of rotation.
+        check('id="scrim"' in page and "closeMenu" in page,
+              "and a click outside is swallowed rather than passed through")
 
         # ---- the file says what made it ------------------------------- #
         check(f'name="generator" content="step2html {S.__version__}'
