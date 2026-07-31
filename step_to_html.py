@@ -76,7 +76,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.3"
+__version__ = "0.9.4"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -409,19 +409,40 @@ def _patch_face(face, linear, angular):
     agree edge for edge with its neighbours; at these sizes the seam is far
     below a pixel.
     """
+    ORDER = {1.0: ("divide", "plain")}      # everywhere else: plain, divide
+
+    def attempt(how, lin, ang):
+        copy = BRepBuilderAPI_Copy(face).Shape()
+        if how == "plain":
+            return _meshed_ok(copy, lin, ang)
+        divide = ShapeUpgrade_ShapeDivideClosed(copy)
+        divide.SetNbSplitPoints(1)
+        divide.Perform()
+        return _meshed_ok(divide.Result(), lin, ang)
+
     for mult in (1.0, 2.0, 4.0, 8.0, 16.0):
         lin = linear * mult
         ang = min(angular * mult, 1.0)
-        plain = BRepBuilderAPI_Copy(face).Shape()
-        got = _meshed_ok(plain, lin, ang)
-        if got is not None:
-            return got
-        divide = ShapeUpgrade_ShapeDivideClosed(BRepBuilderAPI_Copy(face).Shape())
-        divide.SetNbSplitPoints(1)
-        divide.Perform()
-        got = _meshed_ok(divide.Result(), lin, ang)
-        if got is not None:
-            return got
+        # The split goes FIRST at the model's own deflection, and only there.
+        # A plain copy at those numbers is the one attempt something is known
+        # about: the mesher has just refused this very face at exactly them.
+        # It is not a proof - a face meshed alone is a different problem from
+        # the same face meshed in an assembly, where shared edges constrain it
+        # - which is why the attempt is kept rather than dropped. But it is a
+        # poor thing to try first, and on a real connector an expensive one:
+        # each of the four conical pin tips takes 0.85 s to be refused again
+        # and 0.01 s to build once split. Ten refused faces, 3.40 s spent, of
+        # which 0.05 s did anything - measured, and the reason repair went
+        # from 5.1 s to 1.7 s.
+        #
+        # Coarser is a different matter: there a plain patch is worth having
+        # first, because it keeps the face whole and needs no seam. Two 0.12
+        # mm2 planes on the same connector fail at 0.0076 mm and build plain
+        # at twice that.
+        for how in ORDER.get(mult, ("plain", "divide")):
+            got = attempt(how, lin, ang)
+            if got is not None:
+                return got
     return None
 
 
@@ -479,6 +500,15 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
 
     Normals are averaged per FACE, so a bend comes out smooth and the edge
     between two faces stays sharp.
+
+    **The parts must already be meshed.** This reads the triangulation that is
+    there and does not make it, and *linear* and *angular* are here for the
+    edges, which are discretised from the curve when a face has no polygon on
+    it. Every caller meshes first - repair_parts does it, and the --no-repair
+    branch does it by hand - so a second BRepMesh_IncrementalMesh here was
+    doing the work twice: measured at 1.2 s of an 11.5 s build on a 927-face
+    board, because that call re-meshes rather than noticing the triangulation
+    already carries the deflection asked for.
     """
     pos: list[float] = []
     nrm: list[float] = []
@@ -498,7 +528,6 @@ def tessellate(parts, color_tool, linear=0.04, angular=0.35, tick=None):
                       for _n, _r, sh, _l, pt in parts) or 1
 
     for _name, part_rgb, shape, part_loc, patches in parts:
-        BRepMesh_IncrementalMesh(shape, linear, False, angular, True)
         place = part_loc.Transformation()
         # A mirrored placement reverses the winding of every triangle in it.
         mirrored = place.IsNegative()

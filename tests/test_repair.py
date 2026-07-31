@@ -83,6 +83,19 @@ def main():
               f"{plain_tris} -> {fixed_tris}")
         check(not left, "this fixture needs no patching in the first place")
 
+        # tessellate reads the triangulation; it does not make one. That is
+        # what took the second BRepMesh out of it - 1.2 s a build on a real
+        # board - and it is a contract, so it is pinned: unmeshed parts must
+        # come back empty rather than quietly meshing themselves again.
+        doc0 = S.read_step(step)
+        raw_parts, ct0 = S.collect_parts(doc0)
+        unmeshed = [(n, c, sh, l, []) for n, c, sh, l in raw_parts]
+        pos0, _n0, _c0, idx0, _e0, _ei0, _st0 = S.tessellate(
+            unmeshed, ct0, linear=S.auto_deflection(raw_parts), angular=ANGULAR)
+        check(not pos0 and not idx0,
+              "tessellate reads a mesh, it does not make one",
+              f"{len(pos0) // 3} vertices from unmeshed parts")
+
         # The auto deflection has to be a number and has to scale with the
         # model, since a fixed millimetre is the wrong unit for both a pin and
         # a panel.

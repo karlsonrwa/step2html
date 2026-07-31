@@ -240,6 +240,55 @@ payload deflates depends on the model, and no formula knows it.
 
 Pass `--max-bytes none` for a single build.
 
+## Speed, and where it went
+
+Profiled on the 927-face rigid-flex test board, 2.4 MB of STEP, four builds:
+**34.4 s before, 20.7 s after**, same mesh chosen. One build at the finest
+setting went from 11.5 s to 6.8 s. Almost none of it was where a profiler
+pointed — cProfile accounted for 2 s of Python in an 11.5 s build, because the
+rest is inside OCCT, so the numbers below are wall clock around each phase.
+
+Two things paid, and both were work that produced nothing:
+
+* **The patch attempts were in the wrong order.** A face the mesher refuses is
+  retried on a copy, plainly first and split second, at five deflections. But
+  a plain copy at the model's own deflection is the one attempt something is
+  known about: the mesher has just refused that very face at exactly those
+  numbers. On this board each of the four conical pin tips took **0.85 s to be
+  refused again and 0.01 s to build once split** — ten refused faces, 3.40 s
+  spent, of which 0.05 s did anything. The split now goes first, and only at
+  that first deflection; coarser, a plain patch is still worth trying first,
+  because it keeps the face whole. Repair: 5.1 s → 1.7 s.
+* **The shape was meshed twice.** `tessellate` opened with its own
+  `BRepMesh_IncrementalMesh`, on parts that had just been meshed with the same
+  numbers, and that call re-meshes rather than noticing the triangulation
+  already carries the deflection asked for: 1.2 s a build. Removing it also
+  settled something quieter — before, the repair decided which faces were
+  empty on one triangulation and the geometry was then taken from another, and
+  the two did not always agree. The proof is in the counts: identical settings
+  gave 132,005 triangles then and 132,013 now.
+
+Where the remaining 6.8 s goes, per build:
+
+| | |
+|---|---|
+| meshing, `BRepMesh` | 1.7 s |
+| tessellation, the Python loop over 105k nodes and 132k triangles | 1.9 s |
+| `pack` — struct, the normals byte pass, deflate at level 9 | 0.9 s |
+| edges from the triangulation | 0.5 s |
+| the page, substitution and escaping | 0.2 s |
+| reading the STEP — **once**, not per build | 1.7 s |
+
+What is left on the table, measured rather than guessed: the per-node transform
+can be done in Python instead of through `gp_Pnt.Transformed`, worth 0.09 s;
+deflate at level 6 is no faster here and marginally worse; and the normals
+could come from OCCT's own surface normals instead of being averaged from
+facets in Python, which would be both quicker and truer, but changes the
+shading and is a piece of work rather than a tweak. The largest remaining
+lever is not in the code at all: a build that overshoots the budget is thrown
+away, and this board throws one away every time — `--max-bytes none` is one
+build and about seven seconds.
+
 ## Package layout
 
 | | |
@@ -804,6 +853,57 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 никакая формула этого не знает.
 
 `--max-bytes none` — одна сборка.
+
+## Скорость, и куда она уходила
+
+Профилировалось на тестовой rigid-flex плате: 927 граней, 2.4 МБ STEP, четыре
+сборки. **34.4 с было, 20.7 с стало**, при том же выбранном шаге сетки. Одна
+сборка на самой мелкой настройке — с 11.5 с до 6.8 с. Почти ничего из этого не
+лежало там, куда показывал профилировщик: cProfile насчитал 2 с питоновского
+времени в 11.5-секундной сборке, потому что остальное сидит внутри OCCT. Так
+что все числа ниже — это часы на стене вокруг каждой фазы.
+
+Помогли две вещи, и обе — работа, не дававшая ничего:
+
+* **Попытки починки шли не в том порядке.** Грань, от которой мешер
+  отказался, переделывается на копии: сперва как есть, потом с разрезом, и так
+  на пяти допусках. Но копия «как есть» на собственном допуске модели — это
+  единственная попытка, про которую кое-что известно: мешер только что отказал
+  ровно этой грани ровно на этих числах. На этой плате каждый из четырёх
+  конических кончиков ножек тратил **0.85 с на то, чтобы получить отказ снова,
+  и 0.01 с на то, чтобы собраться после разреза**. Десять отказавших граней,
+  3.40 с потрачено, полезной работы из них — 0.05 с. Теперь разрез идёт первым,
+  и только на первом допуске: дальше, на более грубых, копия «как есть» всё
+  ещё стоит того, чтобы пробовать её первой, потому что она оставляет грань
+  целой. Починка: 5.1 с → 1.7 с.
+* **Форма мешилась дважды.** `tessellate` начинался с собственного
+  `BRepMesh_IncrementalMesh` по деталям, которые только что были смешены с теми
+  же числами, а этот вызов перемешивает заново, а не замечает, что триангуляция
+  уже несёт запрошенный допуск: 1.2 с на сборку. Удаление заодно закрыло вещь
+  потише: раньше починка решала, какие грани пустые, по одной триангуляции, а
+  геометрия бралась потом из другой, и они не всегда совпадали. Доказательство
+  в числах: при одинаковых настройках было 132 005 треугольников, стало
+  132 013.
+
+Куда уходят оставшиеся 6.8 с на сборку:
+
+| | |
+|---|---|
+| мешинг, `BRepMesh` | 1.7 с |
+| тесселяция, питоновский цикл по 105 тыс. узлов и 132 тыс. треугольников | 1.9 с |
+| `pack` — struct, перевод нормалей в байты, deflate уровня 9 | 0.9 с |
+| рёбра из триангуляции | 0.5 с |
+| страница, подстановка и экранирование | 0.2 с |
+| чтение STEP — **один раз**, а не на каждую сборку | 1.7 с |
+
+Что осталось на столе, тоже по замерам, а не по догадке: преобразование узла
+можно делать в Python вместо `gp_Pnt.Transformed` — это 0.09 с; deflate уровня
+6 здесь не быстрее и чуть хуже по размеру; а нормали можно брать не усреднением
+граней в Python, а у самого OCCT, что было бы и быстрее, и честнее, — но это
+меняет затенение и тянет на работу, а не на правку. Самый крупный оставшийся
+рычаг вообще не в коде: сборка, вылетевшая за бюджет, выбрасывается, и эта
+плата выбрасывает одну каждый раз. `--max-bytes none` — одна сборка и около
+семи секунд.
 
 ## Структура пакета
 
