@@ -71,7 +71,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"with OCP installed.\nCheck with:  python -c \"import OCP; print(OCP.__file__)\""
     )
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -881,7 +881,7 @@ PAGE = r"""<!doctype html>
   #mline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
     display:none}
   #mline.on{display:block}
-  #mline line.main{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:5 4}
+  #mline line.main{stroke:var(--accent);stroke-width:1.8;stroke-dasharray:5 4}
   #mline circle{fill:var(--accent)}
   /* The rim the measurement has caught, and the centre it snapped to: a
      hollow ring on the circle itself, so it is obvious WHICH hole the number
@@ -893,17 +893,22 @@ PAGE = r"""<!doctype html>
      is not mistaken for one of the measured legs. */
   #mline line.lead{stroke:var(--accent);stroke-width:1;opacity:.55}
   /* One colour per axis, and the same three everywhere: the triad in the
-     corner and the stepped path of a measurement say the same thing. */
-  .x{stroke:#e0483a;fill:#e0483a}
-  .y{stroke:#2f9e52;fill:#2f9e52}
-  .z{stroke:#3b7ddd;fill:#3b7ddd}
-  #mline line.ax{stroke-width:1.2;stroke-dasharray:3 3}
+     corner and the stepped path of a measurement say the same thing.
+     Two sets, because one cannot be right on both backgrounds: on the dark
+     theme they have to be light to carry, on the light one they have to be
+     saturated instead, and a single middling set reads as muted on both. */
+  :root{--ax-x:#ff6152;--ax-y:#3ee083;--ax-z:#62aaff}
+  :root.light{--ax-x:#e8291a;--ax-y:#0f9d4c;--ax-z:#1668e6}
+  .x{stroke:var(--ax-x);fill:var(--ax-x)}
+  .y{stroke:var(--ax-y);fill:var(--ax-y)}
+  .z{stroke:var(--ax-z);fill:var(--ax-z)}
+  #mline line.ax{stroke-width:1.5;stroke-dasharray:3 3}
   #mline text.ax{font-size:11px;stroke:none;paint-order:stroke;
     stroke-width:3px;stroke:var(--bg)}
   #axes{position:absolute;left:12px;bottom:12px;width:88px;height:88px;
     pointer-events:none}
-  #axes line{stroke-width:1.8;stroke-linecap:round}
-  #axes text{font-size:11px;font-weight:600;stroke:none;text-anchor:middle;
+  #axes line{stroke-width:2.2;stroke-linecap:round}
+  #axes text{font-size:11px;font-weight:700;stroke:none;text-anchor:middle;
     dominant-baseline:middle}
   /* Draggable, so it takes pointer events - which is why it is a sibling of
      the canvas and not part of #mline, which takes none. It parks itself in
@@ -1765,11 +1770,19 @@ async function boot(){
     // Each delta named and signed: "71.35" alone says neither which axis it
     // is on nor which way it points, and both matter when the question is
     // whether something clears something else.
+    //
+    // Thousandths, and the file can carry them: the coordinates are float32
+    // about the middle of the model, so on a 160 mm board one step of the
+    // format is some five millionths of a millimetre. What the third decimal
+    // is WORTH is a different question, and it depends on where the point
+    // came from - a centre snapped off a circle is exact, a point taken off a
+    // surface is only as true as the mesh under it.
+    const DP=3, ZERO=5e-4;      // below half of the last digit shown, say zero
     const g=(axis,v)=>{
-      const n=Math.abs(v)<5e-3?0:v;
-      return `Δ${axis} ${n>0?'+':''}${n.toFixed(2)}`;
+      const n=Math.abs(v)<ZERO?0:v;
+      return `Δ${axis} ${n>0?'+':''}${n.toFixed(DP)}`;
     };
-    mlabel.textContent=`${Math.hypot(dx,dy,dz).toFixed(2)} mm
+    mlabel.textContent=`${Math.hypot(dx,dy,dz).toFixed(DP)} mm
 `
                       +`${g('X',dx)}   ${g('Y',dy)}   ${g('Z',dz)}`;
 
@@ -1784,6 +1797,10 @@ async function boot(){
     const deltas=[dx,dy,dz];
     for(let i=0;i<3;i++){
       const s0=corners[i], s1=corners[i+1];
+      // A separate threshold from the one the numbers use, and a coarser one:
+      // this asks whether a leg is long enough to SEE, not whether it is
+      // large enough to print. A three-micron leg is a dot with a number on
+      // top of it.
       const worth = s0 && s1 && Math.abs(deltas[i])>5e-3;
       legs[i].style.display = worth ? '' : 'none';
       tags[i].style.display = worth ? '' : 'none';
@@ -1793,7 +1810,7 @@ async function boot(){
       tags[i].setAttribute('x',(s0[0]+s1[0])/2);
       tags[i].setAttribute('y',(s0[1]+s1[1])/2-4);
       tags[i].setAttribute('text-anchor','middle');
-      tags[i].textContent=Math.abs(deltas[i]).toFixed(2);
+      tags[i].textContent=Math.abs(deltas[i]).toFixed(DP);
     }
 
     // ---- where the reading goes --------------------------------------- #
@@ -1813,11 +1830,38 @@ async function boot(){
       for(let k=0;k<=6;k++)
         pts.push([s[0][0]+(s[1][0]-s[0][0])*k/6,
                   s[0][1]+(s[1][1]-s[0][1])*k/6]);
-    // The two bottom corners are not free: the axis triad stands in one and
-    // the view cube in the other, so the label is parked clear of both.
-    const M=12;
-    const cands=[[M+lw/2,M+lh/2], [W-M-lw/2,M+lh/2],
-                 [M+lw/2,H-100-lh/2], [W-M-lw/2,H-58-lh/2]];
+    // No corner is empty. The axis triad stands in one and the view cube in
+    // another, and the help button - fixed to the top right of the WINDOW,
+    // which in the side layout is over the canvas - stands in a third. Their
+    // rectangles are ASKED OF THE ELEMENTS, not written down here as numbers:
+    // the bottom two were numbers once, which is why the cube was cleared and
+    // the help button, having no number of its own, was not.
+    const M=12, GAP=8;
+    const cr=cv.getBoundingClientRect();
+    const furniture=[];
+    for(const el of [document.getElementById('help'), cube, axesSvg]){
+      const fb=el&&el.getBoundingClientRect();
+      if(fb&&fb.width&&fb.height)
+        furniture.push({l:fb.left-cr.left-GAP, t:fb.top-cr.top-GAP,
+                        r:fb.right-cr.left+GAP, b:fb.bottom-cr.top+GAP});
+    }
+    // A corner is taken as given horizontally and pushed inwards vertically
+    // until nothing is under the label any more.
+    const clear=(cx_,cy_,inwards)=>{
+      for(let pass=0;pass<4;pass++){
+        let moved=false;
+        for(const f of furniture){
+          if(cx_+lw/2<f.l || cx_-lw/2>f.r) continue;
+          if(cy_+lh/2<f.t || cy_-lh/2>f.b) continue;
+          cy_ = inwards>0 ? f.b+lh/2 : f.t-lh/2;
+          moved=true;
+        }
+        if(!moved) break;
+      }
+      return [cx_,cy_];
+    };
+    const cands=[clear(M+lw/2,   M+lh/2,     1), clear(W-M-lw/2, M+lh/2,     1),
+                 clear(M+lw/2, H-M-lh/2,    -1), clear(W-M-lw/2, H-M-lh/2,  -1)];
     let best=cands[0], bestD=-1;
     for(const c of cands){
       let d=1e9;

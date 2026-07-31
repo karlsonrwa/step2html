@@ -72,8 +72,11 @@ line in `VIEWS`.
 
 Tick **Measure** and two clicks give the distance between the points, with
 ΔX/ΔY/ΔZ beside it — computed in model space, so the number is millimetres and
-owes nothing to the projection it is looked at through. A third click starts
-again. Measuring is a mode rather than a modifier because a plain click
+owes nothing to the projection it is looked at through, and shown **to a
+thousandth**. The file can carry that: the coordinates are float32 about the
+middle of the model, so on a 160 mm board one step of the format is some five
+millionths of a millimetre. What the third decimal is *worth* is a different
+question, answered under Known limitations. A third click starts again. Measuring is a mode rather than a modifier because a plain click
 already means "turn about this point", and one gesture cannot honestly mean
 two things.
 
@@ -105,7 +108,10 @@ After the second click the measurement also draws the **stepped path** a CAD
 viewer draws: from the first point along X, then Y, then Z to the second, each
 leg in its own colour and carrying its own number. A leg of no length is not
 drawn at all. The same three colours label the **axis triad** in the bottom
-left corner — X red, Y green, Z blue — which shows orientation and nothing
+left corner — X red, Y green, Z blue, in **two sets**, because one cannot be
+right on both backgrounds: light enough to carry on the dark theme, saturated
+instead of pale on the light one, and a single middling set reads as muted on
+both. The triad shows orientation and nothing
 else: no projection, no distance, no pivot. Checked against the named views,
 where it is unambiguous: from the top the Z arm collapses to a point, from the
 front the Y arm does and Z stands straight up.
@@ -115,9 +121,17 @@ measurement**, on a thin lead back to the middle of the line. In the middle of
 that line, which is where it sat before, it covered the very thing being
 measured. The corner is chosen against points sampled *along* the legs and not
 only at their ends — a corner far from both ends can still sit squarely on top
-of a long leg — and the two bottom corners are entered with the axis triad and
-the view cube already accounted for. Drag it if the corner chosen is the wrong
-one; it then holds that place until the measurement is cleared.
+of a long leg. Drag it if the corner chosen is the wrong one; it then holds
+that place until the measurement is cleared, and is clamped back into view if
+the window is narrowed under it.
+
+**No corner is empty**, and which of them are occupied is asked of the
+elements rather than written down as numbers. That distinction was a bug: the
+two bottom corners were numbers, so the reading cleared the view cube and the
+axis triad, while the help button — fixed to the top right of the *window*,
+which in the side layout is over the canvas — had no number of its own and was
+quietly slid under. Each corner is now taken as given horizontally and pushed
+inwards until nothing is beneath the label.
 
 **Save PNG** writes out **what is on screen**, not just the triangles: the measurement, its stepped path, the numbers, the centre of rotation and the axis triad are all DOM and SVG, so they are drawn again onto a 2D canvas over the WebGL image, read back off the live elements so the file cannot disagree with the screen. The keys `1`–`8` pick
 the eight views, `E` edges, `P` projection, `M` measuring, `Esc` clears. And
@@ -484,12 +498,14 @@ and all of which are now fixed and mostly pinned:
 ## Known limitations
 
 * The result is a **mesh**, not B-rep, and not for machining. What that costs a
-  measurement is worth stating exactly: a point taken off a surface is only as
-  true as the mesh under it, which is the deflection the file was built at —
-  0.006 mm on the test board. A point **snapped to a circle's centre** is not,
+  measurement is worth stating exactly, because measurements are shown to a
+  thousandth of a millimetre and a number that precise invites belief: a point
+  taken off a surface is only as true as the mesh under it, which is the
+  deflection the file was built at — 0.006 mm on the test board, so the third
+  decimal there is decoration. A point **snapped to a circle's centre** is not,
   because that centre comes from the B-rep and never passes through the mesh at
-  all. So centre to centre is exact; anything to a surface carries the
-  deflection with it.
+  all. So centre to centre is exact to the thousandth shown; anything off a
+  surface carries the deflection with it.
 * No model tree and no section planes. A 3D PDF in Acrobat has those; this does
   not.
 * The page needs `DecompressionStream` and WebGL2: Chrome/Edge 80+, Firefox
@@ -574,8 +590,11 @@ python gui.py
 
 Галка **Measure** — и два щелчка дают расстояние между точками, рядом
 ΔX/ΔY/ΔZ. Считается в системе координат модели, поэтому число это миллиметры и
-оно ничем не обязано той проекции, через которую на него смотрят. Третий
-щелчок начинает заново. Измерение сделано режимом, а не модификатором, потому
+оно ничем не обязано той проекции, через которую на него смотрят, и
+показывается **до тысячных**. Файл это выдерживает: координаты — float32
+относительно середины модели, так что на плате в 160 мм один шаг формата это
+около пяти миллионных миллиметра. Чего третий знак *стоит* — вопрос другой,
+и ответ на него в «Известных ограничениях». Третий щелчок начинает заново. Измерение сделано режимом, а не модификатором, потому
 что обычный щелчок уже означает «вращать вокруг этой точки», а один жест не
 может честно значить два разных.
 
@@ -607,19 +626,29 @@ Python, по рёбрам, кривая которых — окружность,
 делает CAD: от первой точки вдоль X, затем Y, затем Z ко второй, каждый
 отрезок своим цветом и со своим числом. Отрезок нулевой длины не рисуется
 вовсе. Те же три цвета у **тройки осей** в левом нижнем углу — X красная, Y
-зелёная, Z синяя, — которая показывает ориентацию и больше ничего: ни
-проекции, ни расстояния, ни центра вращения. Проверена по именованным видам,
+зелёная, Z синяя, — и цветов этих **два набора**, потому что один не может
+быть верным на обоих фонах: на тёмной теме они должны быть светлыми, чтобы
+тянуть, на светлой — насыщенными, а единый средний набор на обеих читается
+приглушённым. Тройка показывает ориентацию и больше ничего: ни проекции, ни
+расстояния, ни центра вращения. Проверена по именованным видам,
 где ответ однозначен: сверху луч Z схлопывается в точку, спереди то же делает
 Y, а Z встаёт вертикально.
 
 Сама табличка с результатом уходит **в самый дальний от измерения угол вида**,
 а к середине линии от неё тянется тонкий поводок. Посреди этой линии, где она
 стояла раньше, она закрывала собой ровно то, что измеряют. Угол выбирается по
-точкам, взятым *вдоль* отрезков, а не только по их концам — угол, далёкий от
-обоих концов, вполне может оказаться прямо на длинном отрезке, — а в двух
-нижних углах уже учтены тройка осей и кубик видов. Если выбранный угол не тот,
-табличку можно перетащить мышью; она останется на новом месте, пока измерение
-не сбросят.
+точкам, взятым *вдоль* отрезков, а не только по их концам: угол, далёкий от
+обоих концов, вполне может оказаться прямо на длинном отрезке. Если выбранный
+угол не тот, табличку можно перетащить мышью; она останется на новом месте,
+пока измерение не сбросят, и вернётся в поле зрения, если окно под ней сузят.
+
+**Пустых углов нет**, и какие из них заняты — спрашивается у самих элементов,
+а не записано числами. Разница эта была ошибкой: два нижних угла были
+числами, поэтому табличка обходила кубик видов и тройку осей, а кнопка справки
+— прибитая к правому верхнему углу *окна*, который в боковой раскладке
+приходится на холст, — своего числа не имела, и под неё табличка спокойно
+заезжала. Теперь угол берётся как есть по горизонтали и отодвигается внутрь,
+пока под табличкой ничего не останется.
 
 **Save PNG** сохраняет **то, что на экране**, а не только треугольники: измерение, его ступенчатый путь, числа, центр вращения и тройка осей — это DOM и SVG, поэтому они дорисовываются на двумерном холсте поверх картинки WebGL, причём считываются с живых элементов, чтобы файл не мог разойтись с экраном. Клавиши `1`–`8` — восемь видов,
 `E` — рёбра, `P` — проекция, `M` — измерение, `Esc` — сброс. А адрес страницы
@@ -994,12 +1023,14 @@ Chrome отказывается скачивать `data:` длиннее при
 ## Известные ограничения
 
 * Результат — **сетка**, а не B-rep, и обрабатывать по нему нельзя. Чего это
-  стоит измерению, лучше сказать точно: точка, взятая с поверхности, верна
-  ровно настолько, насколько верна сетка под ней, то есть с точностью до
-  отклонения, с которым собран файл, — 0.006 мм на тестовой плате. Точка,
-  **привязанная к центру окружности**, — нет: этот центр приходит из B-rep и
-  через сетку не проходит вовсе. Так что от центра до центра — точно, а всё,
-  что упирается в поверхность, несёт на себе отклонение.
+  стоит измерению, лучше сказать точно — тем более что числа показываются до
+  тысячных, а такая точность располагает верить: точка, взятая с поверхности,
+  верна ровно настолько, насколько верна сетка под ней, то есть с точностью до
+  отклонения, с которым собран файл, — 0.006 мм на тестовой плате, так что
+  третий знак там украшение. Точка, **привязанная к центру окружности**, — нет:
+  этот центр приходит из B-rep и через сетку не проходит вовсе. Так что от
+  центра до центра — точно до показанной тысячной, а всё, что упирается в
+  поверхность, несёт на себе отклонение.
 * Нет дерева модели и нет секущих плоскостей. У 3D PDF в Acrobat это есть,
   здесь — нет.
 * Странице нужны `DecompressionStream` и WebGL2: Chrome/Edge 80+, Firefox 113+,
