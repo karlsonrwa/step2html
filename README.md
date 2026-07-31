@@ -140,14 +140,32 @@ one corner of the board is a copy away.
 
 ## Installation
 
-Python 3.10 or newer, and one dependency:
+Python 3.10 or newer, and one dependency. From the project folder:
 
 ```bash
-pip install cadquery-ocp
+python -m pip install -r requirements.txt
+```
+
+```bash
 python tests/run_all.py
 ```
 
+`python -m pip` rather than `pip`, and **from the project folder**, and both
+for reasons that have bitten already. A machine with several Pythons on it can
+have a `pip` belonging to a different one from the `python` you will run this
+with — which is exactly how the window ends up unable to start. And the
+requirements file installs `.`, the current directory, so pip run from
+somewhere else looks for a project where you are standing and says so.
+
+The file lists no dependencies of its own. There is one, `cadquery-ocp`, and it
+is declared in `pyproject.toml`; a second copy would be a second list to keep in
+step. `-e .` makes pip read that one. Editable, so the folder you edit stays the
+folder that runs — and it puts `step2html` and `step2html-gui` on that Python's
+PATH, the second of which is a windowed entry point and so another way past the
+vanishing console described below.
+
 `cadquery-ocp` is OCCT. Nothing else is needed, and nothing else is used.
+Tested against 7.9.3 on Python 3.12.
 
 ## The GUI
 
@@ -230,6 +248,7 @@ Pass `--max-bytes none` for a single build.
 | `gui.py` | the window. Builds the same `Options` and hands it to the worker |
 | `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
+| `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -684,14 +703,33 @@ Y, а Z встаёт вертикально.
 
 ## Установка
 
-Python 3.10 или новее и одна зависимость:
+Python 3.10 или новее и одна зависимость. Из папки проекта:
 
 ```bash
-pip install cadquery-ocp
+python -m pip install -r requirements.txt
+```
+
+```bash
 python tests/run_all.py
 ```
 
+`python -m pip`, а не `pip`, и **из папки проекта** — и то и другое по
+причинам, которые уже кусались. На машине с несколькими Python команда `pip`
+вполне может принадлежать не тому интерпретатору, которым вы будете запускать
+инструмент, — именно так окно и оказывается неспособным стартовать. А файл
+требований ставит `.`, то есть текущую папку, поэтому pip, запущенный откуда-то
+ещё, будет искать проект там, где вы стоите, и прямо об этом скажет.
+
+Сам файл никаких зависимостей не перечисляет. Зависимость одна, `cadquery-ocp`,
+и она объявлена в `pyproject.toml`; вторая копия была бы вторым списком, за
+которым надо следить. `-e .` заставляет pip прочитать тот, единственный.
+Установка редактируемая, поэтому папка, которую вы правите, и есть та, что
+работает, — а ещё в PATH этого Python появляются `step2html` и `step2html-gui`,
+причём второй это оконная точка входа, то есть ещё один способ обойти
+исчезающую консоль, о которой ниже.
+
 `cadquery-ocp` — это OCCT. Больше ничего не требуется и ничего не используется.
+Проверено на 7.9.3 и Python 3.12.
 
 ## Окно программы
 
@@ -775,6 +813,7 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `gui.py` | окно. Собирает тот же самый `Options` и отдаёт его воркеру |
 | `worker.py` | `convert` в дочернем процессе. Не должен импортировать tkinter: на Windows дочерний процесс порождается заново и импортирует модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
+| `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация

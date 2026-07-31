@@ -76,7 +76,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -2581,6 +2581,10 @@ def main(argv=None):
   python gui.py
       -> the same thing with a window around it
 """)
+    # A tool that stamps its version into every file it makes should be able
+    # to say it out loud as well.
+    ap.add_argument("--version", action="version",
+                    version=f"step2html {tool_version()}")
     ap.add_argument("step", type=Path, help="the STEP file to convert")
     ap.add_argument("-o", "--out", type=Path, default=None,
                     help="output .html (default: beside the STEP, same name)")

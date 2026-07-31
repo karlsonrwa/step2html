@@ -1,0 +1,24 @@
+# Everything step2html needs, in one command:
+#
+#     python -m pip install -r requirements.txt
+#
+# "python -m pip" rather than "pip" on purpose: a machine with several Pythons
+# on it can have a "pip" that belongs to a different one, which is precisely
+# how the window ends up unable to start (see the GUI section of the README).
+# Run it with the same interpreter you will run step2html with.
+#
+# This file does NOT list the dependencies. There is one, cadquery-ocp, and it
+# is declared in pyproject.toml; a second copy here would be a second list to
+# keep in step, and the two would eventually disagree. "-e ." makes pip read
+# pyproject and install what it says, so there is one list and one command.
+#
+# Editable, so the folder you edit stays the one that runs. It also puts two
+# commands on the PATH of that Python - step2html and step2html-gui - and
+# step2html-gui is a windowed entry point, which is another way past the
+# vanishing console of a double-clicked gui.py.
+#
+# Run it FROM THIS FOLDER. The "." below is the current directory, not the
+# directory this file is in - pointing pip at the full path of this file from
+# somewhere else makes it look for a project where you are standing, and say
+# so in those words.
+-e .

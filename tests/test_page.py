@@ -124,6 +124,14 @@ def main():
         check("labelAt" in page and "line.lead" in page,
               "the reading parks out of the way, on a lead")
 
+        # The number the pages carry, asked of the tool itself.
+        try:
+            S.main(["--version"])
+            said = "nothing"
+        except SystemExit as exc:
+            said = str(exc.code)
+        check(said == "0", "--version answers and exits cleanly", said)
+
         # ---- the file says what made it ------------------------------- #
         check(f'name="generator" content="step2html {S.__version__}'
               in page, "the head carries a generator tag with the version")
