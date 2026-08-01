@@ -289,6 +289,67 @@ lever is not in the code at all: a build that overshoots the budget is thrown
 away, and this board throws one away every time — `--max-bytes none` is one
 build and about seven seconds.
 
+## Standalone
+
+For a machine with no Python and no OCP on it:
+
+```bash
+python -m pip install pyinstaller
+packaging\build.cmd
+```
+
+`STEP2HTML_ONEDIR=1` builds a folder instead of one file, `STEP2HTML_CONSOLE=1`
+a console build for checking from a shell. Everything lands in `dist\`.
+
+| | one file | a folder |
+|---|---|---|
+| on disk | **82.4 MB** | 306.5 MB, 1066 files |
+| zipped, to send | 82.4 MB | **82.7 MB** |
+| start, to first response | 8.1–9.3 s | **3.05 s** |
+
+Measured the same way for both — the folder wins on every launch and costs
+nothing to send, because zip compresses the same bytes the one-file bootloader
+does. What one file buys is that there is nothing to unpack by hand.
+
+**Where the weight is**, and none of it is ours: `OCP.pyd` 94 MB, the OCCT DLLs
+it links against 65 MB, **VTK 135 MB**, Python and Tk about 12. VTK is not used
+here by a single line, and it still cannot go — measured, in two steps. Without
+`vtk.libs` at all, `OCP/__init__.py` dies on `os.add_dll_directory`, which it
+calls for that folder with no `isdir()` guard, unlike the line above it that
+does exactly that for `cadquery_ocp.libs`. With an **empty** `vtk.libs`, the
+directory is accepted and `OCP.pyd` then fails to load: Windows resolves every
+name in an import table at load time, and six VTK DLLs are in that table.
+
+**The standard library is left alone.** Excluding the parts this tool does not
+use — `http`, `urllib`, `email`, `asyncio` — looked free and was not: `pathlib`
+imports `urllib` for `as_uri()`, so the build came up dead with *No module
+named 'urllib'* out of `pathlib`, in a dialog, twice over, before a line of
+ours had run. All of `base_library.zip` is 1.2 MB of a 306 MB bundle.
+
+**Check a build with `--selftest`:**
+
+```bash
+dist\step2html.exe --selftest some.step
+```
+
+It drives the *window's* machinery headless — Tk up, Generate pressed, the
+channel pumped until the child answers — and writes `some.selftest.html`. That
+path is worth its own check because the command line never starts a child
+process, so a binary can convert perfectly from a shell and still fail the
+moment somebody presses Generate. The result is a file rather than a message
+because a windowed build has nowhere to print.
+
+A frozen build stamps pages with the version and **no commit hash**: there is
+no repository beside an executable to ask.
+
+On the eight seconds a one-file build spends unpacking: PyInstaller can show a
+**splash image** during it, and that image appears before Python starts, which
+is the right moment. But the only thing a program can change on it is one line
+of text, through `pyi_splash.update_text()`, and only once Python is running —
+by which time the wait is over. The bootloader reports no progress to anyone,
+so a real progress bar is not available, and a frozen one reads worse than
+none. The folder build removes the wait instead of decorating it.
+
 ## Package layout
 
 | | |
@@ -298,6 +359,7 @@ build and about seven seconds.
 | `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
+| `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
 | `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -944,6 +1006,69 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 плата выбрасывает одну каждый раз. `--max-bytes none` — одна сборка и около
 семи секунд.
 
+## Standalone
+
+Для машины, где нет ни Python, ни OCP:
+
+```bash
+python -m pip install pyinstaller
+packaging\build.cmd
+```
+
+`STEP2HTML_ONEDIR=1` собирает папку вместо одного файла, `STEP2HTML_CONSOLE=1`
+— консольную сборку, чтобы проверять из оболочки. Всё складывается в `dist\`.
+
+| | одним файлом | папкой |
+|---|---|---|
+| на диске | **82.4 МБ** | 306.5 МБ, 1066 файлов |
+| в архиве, чтобы переслать | 82.4 МБ | **82.7 МБ** |
+| старт до первого ответа | 8.1–9.3 с | **3.05 с** |
+
+Мерилось обоим одинаково. Папка выигрывает при каждом запуске и ничего не
+стоит при пересылке: zip сжимает те же байты, что и загрузчик одного файла.
+Единственное преимущество одного файла — руками ничего распаковывать не надо.
+
+**Из чего вес**, и ничего из этого не наше: `OCP.pyd` 94 МБ, библиотеки OCCT,
+с которыми он слинкован, — 65 МБ, **VTK — 135 МБ**, Python и Tk — около 12.
+VTK здесь не используется ни одной строчкой и всё равно не выкидывается — это
+проверено в два шага. Без папки `vtk.libs` падает сам `OCP/__init__.py`: он
+зовёт для неё `os.add_dll_directory` **без проверки на существование**, в
+отличие от строки выше, которая делает ровно это для `cadquery_ocp.libs`. С
+**пустой** папкой `vtk.libs` она принимается, но уже `OCP.pyd` не грузится:
+Windows разрешает все имена из таблицы импорта при загрузке, а шесть
+vtk-библиотек в этой таблице есть.
+
+**Стандартную библиотеку не трогаем.** Выкинуть из неё то, чем инструмент не
+пользуется — `http`, `urllib`, `email`, `asyncio`, — выглядело бесплатным и
+таким не оказалось: `pathlib` импортирует `urllib` ради `as_uri()`, и сборка
+поднялась мёртвой с «No module named 'urllib'» из `pathlib`, в диалоговом
+окне, причём в двух сразу, ещё до единой нашей строки. Весь
+`base_library.zip` — это 1.2 МБ из 306.
+
+**Проверять сборку — ключом `--selftest`:**
+
+```bash
+dist\step2html.exe --selftest some.step
+```
+
+Он прогоняет машинерию *окна* без окна — поднимает Tk, жмёт Generate, качает
+канал до ответа — и пишет `some.selftest.html`. Этот путь стоит отдельной
+проверки, потому что командная строка дочерний процесс не запускает вовсе:
+бинарник может прекрасно преобразовывать из оболочки и падать в ту секунду,
+когда кто-то нажмёт Generate. Результат — файл, а не сообщение, потому что
+оконной сборке печатать некуда.
+
+Замороженная сборка подписывает страницы версией и **без хеша коммита**: рядом
+с исполняемым файлом нет репозитория, чтобы спросить.
+
+Про восемь секунд, которые один файл тратит на распаковку: PyInstaller умеет
+показывать **заставку**, и появляется она до старта Python — то есть в нужный
+момент. Но единственное, что программа может на ней менять, — одна строка
+текста, через `pyi_splash.update_text()`, и только когда Python уже запущен, а
+к этому времени ожидание позади. Загрузчик прогресс распаковки никому не
+сообщает, так что честного индикатора не получится, а замерший читается хуже,
+чем его отсутствие. Сборка папкой убирает ожидание, а не украшает его.
+
 ## Структура пакета
 
 | | |
@@ -953,6 +1078,7 @@ step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
 | `worker.py` | `convert` в дочернем процессе. Не должен импортировать tkinter: на Windows дочерний процесс порождается заново и импортирует модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
+| `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
 | `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация
