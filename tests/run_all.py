@@ -16,6 +16,7 @@ JOBS = [
     ("the budget search",        TESTS / "test_budget.py"),
     ("the progress bar",         TESTS / "test_progress.py"),
     ("window geometry",          TESTS / "test_geometry.py"),
+    ("the viewer, in node",      TESTS / "test_viewer.py"),
     ("colours and geometry",     TESTS / "test_model.py"),
     ("the generated page",       TESTS / "test_page.py"),
     ("repairing a refused face", TESTS / "test_repair.py"),

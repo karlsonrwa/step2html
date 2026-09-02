@@ -26,7 +26,7 @@ proper starts at convert.py; the OCP names come in through _occt.py.
 """
 from __future__ import annotations
 
-__version__ = "0.10.3"
+__version__ = "0.11.0"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a

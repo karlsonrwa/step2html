@@ -21,8 +21,9 @@ from pathlib import Path
 from harness import check, run
 from fixtures import coloured_assembly
 from step2html import __version__, cli, payload
+from step2html import page as page_module
 from step2html.convert import Options, convert
-from step2html.page import TEXT, build_page
+from step2html.page import JS_ORDER, TEXT, build_page
 
 
 def main():
@@ -120,6 +121,20 @@ def main():
         else:
             print("  note  node is not on PATH; the script was not parsed by "
                   "a real parser")
+        # The script is one file per concern under viewer/, concatenated in
+        # the order page.py names. Every file there must be named, once, and
+        # must land in the page in that order - a file added to the folder
+        # and forgotten off the list would simply be missing from every page.
+        on_disk = sorted(p.name for p in
+                         (Path(page_module.__file__).parent / "viewer").glob("*.js"))
+        check(sorted(JS_ORDER) == on_disk and len(set(JS_ORDER)) == len(JS_ORDER),
+              "every script file under viewer/ is in the page, once",
+              f"on disk {on_disk}, listed {sorted(JS_ORDER)}")
+        banners = [page.find("// ==== " + name[:-3] + ":") for name in JS_ORDER]
+        check(all(b >= 0 for b in banners) and banners == sorted(banners)
+              and page.rstrip().endswith("boot();\n</script></body></html>"),
+              "and they arrive in that order, with boot() last",
+              str(banners))
         # Every element the script reaches for must exist in the markup.
         # getElementById returns null for one that does not, and the line
         # after it dies - which is how fail(), of all functions, ended up
@@ -143,7 +158,8 @@ def main():
         # an API from before deflate-raw - Chrome 80 to 102 - whose
         # constructor throws. Caught inside the unpacking's own try, that
         # throw read as "damaged file" about a file that was whole.
-        check(page.count("fail(MSG.old)") == 2 and "103+" in page,
+        check(page.count("{kind:'old'}") == 2 and "MSG.old" in page
+              and "103+" in page,
               "an old browser is named as old, not as a damaged file")
 
         # ---- the measurement snaps, and says so ----------------------- #

@@ -356,13 +356,14 @@ none. The folder build removes the wait instead of decorating it.
 
 | | |
 |---|---|
-| `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them from the template in `viewer/` - markup, stylesheet and script as three files; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
+| `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them from the template in `viewer/` - the markup, the stylesheet, and the script as one file per concern, concatenated in the order `page.py` names, with everything stateful in `boot.js` and the pure parts checked by node; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
 | `step2html/gui/` | the window, `python -m step2html.gui`. `app.py` is the widgets and the wiring, and builds the same `Options` the CLI does; `job.py` is the child process and its channel, `logpane.py` the coloured log, `geometry.py` where the window goes, `settings.py` what it remembers - none of those four needs a window, and three are tested without one |
 | `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | eight suites, `python tests/run_all.py`, twenty to thirty seconds; four of them - the budget search, the progress bar, window geometry and the child process - need no OCCT |
+| `tests/` | nine suites, `python tests/run_all.py`, twenty to thirty seconds; five of them - the budget search, the progress bar, window geometry, the child process and the viewer's pure modules under node - need no OCCT |
+| `docs/viewer-checklist.md` | what the tests cannot see: the gestures, run by hand on a real board after any change under `viewer/` |
 | `docs/` | the architecture as it stands, the review log by date, and the plan for taking the monoliths apart |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -1127,13 +1128,14 @@ dist\step2html.exe --selftest some.step
 
 | | |
 |---|---|
-| `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу по шаблону из `viewer/` — разметка, стили и скрипт тремя файлами; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
+| `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу по шаблону из `viewer/` — разметка, стили и скрипт по файлу на задачу, склеенные в порядке из `page.py`; всё, у чего есть состояние, живёт в `boot.js`, а чистые части проверяются в node; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
 | `step2html/gui/` | окно, `python -m step2html.gui`. `app.py` — виджеты и проводка, собирает тот же самый `Options`, что и командная строка; `job.py` — дочерний процесс и канал от него, `logpane.py` — цветной лог, `geometry.py` — где окну стоять, `settings.py` — что оно помнит; ни одному из четырёх окно не нужно, а трём не нужно и для тестов |
 | `step2html/worker.py` | `convert` в дочернем процессе. Ничто на пути к нему не должно создавать `Tk()`: на Windows дочерний процесс порождается заново и импортирует главный модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
-| `tests/` | восемь наборов, `python tests/run_all.py`, двадцать-тридцать секунд; четырём из них — поиску по бюджету, полосе прогресса, геометрии окна и дочернему процессу — OCCT не нужен |
+| `tests/` | девять наборов, `python tests/run_all.py`, двадцать-тридцать секунд; пяти из них — поиску по бюджету, полосе прогресса, геометрии окна, дочернему процессу и чистым модулям просмотрщика в node — OCCT не нужен |
+| `docs/viewer-checklist.md` | то, чего тесты не видят: жесты, прогоняемые руками на реальной плате после любой правки в `viewer/` |
 | `docs/` | архитектура как есть, ревью по датам и план дробления монолитов |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация

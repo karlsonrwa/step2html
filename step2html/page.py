@@ -73,15 +73,24 @@ def _read(name: str) -> str:
             .read_text(encoding="utf-8"))
 
 
-# The template lives in three files under viewer/ - markup, stylesheet,
-# script - and is put together ONCE, here, when the module is imported.
+# The template lives under viewer/ - the markup, the stylesheet, and the
+# script as one file per concern - and is put together ONCE, here, when the
+# module is imported. The script is the files of JS_ORDER concatenated: a
+# file:// page cannot load modules, so one script it is, and the order is
+# the order things are needed in - what boot.js calls comes before it, and
+# boot.js, which runs boot(), comes last. test_page checks that every .js
+# under viewer/ is named here, once.
+#
 # The stylesheet and the script are the tool's own text and go in ahead of
 # the one substitution pass build_page makes; only the user's values pass
 # through that, which is what keeps a title from ever being read as
 # template. A frozen build carries viewer/ as data (packaging/step2html.spec).
+JS_ORDER = ("payload.js", "mat.js", "camera.js", "pick.js", "gl.js",
+            "overlays.js", "measure.js", "png.js", "hash.js", "layout.js",
+            "boot.js")
 PAGE = (_read("viewer.html")
         .replace("__CSS__", _read("viewer.css"))
-        .replace("__JS__", _read("viewer.js")))
+        .replace("__JS__", "\n".join(_read(name) for name in JS_ORDER)))
 
 
 def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
