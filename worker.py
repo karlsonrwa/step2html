@@ -8,9 +8,12 @@ its own and the parent still has its exit code, which is the difference
 between a bug report and a mystery. It also makes Cancel trivial: terminate
 the child.
 
-Everything here must be picklable and **must not import tkinter**. On Windows
-the child is spawned rather than forked, so it re-imports this module from
-scratch; dragging the toolkit in would build a second, invisible Tk.
+Everything here must be picklable, and nothing on the way in may build a
+Tk(). On Windows the child is spawned rather than forked: it re-imports this
+module from scratch, and the parent's main module along with it - so tkinter
+IS imported in the child, through gui.py, and that is harmless. What would
+not be is a window created at module level, which the child would open a
+second, invisible copy of.
 
 Message shapes on the channel, which the window understands:
     ("log", text)

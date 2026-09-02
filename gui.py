@@ -583,14 +583,21 @@ class App:
                     "monitor may have been disconnected); centred instead"))
         self._centre()
 
-    def _remember_geometry(self, _event=None) -> None:
+    def _remember_geometry(self, event=None) -> None:
         """Keep the last NON-maximized geometry. Bound to <Configure>.
 
         Maximizing arrives as a Configure that can still be seen while state()
         reports "normal", so without the second filter the maximized rectangle
         gets recorded as if the user had chosen it, and unmaximizing later
         restores nothing.
+
+        Only the root's own Configure counts. A binding on a toplevel sits in
+        the bindtags of every widget under it, so this fires once per field
+        and button laid out, and each of those was asking Tk for the geometry
+        again.
         """
+        if event is not None and event.widget is not self.root:
+            return
         try:
             if self.root.state() != "normal":
                 return

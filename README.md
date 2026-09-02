@@ -165,7 +165,7 @@ PATH, the second of which is a windowed entry point and so another way past the
 vanishing console described below.
 
 `cadquery-ocp` is OCCT. Nothing else is needed, and nothing else is used.
-Tested against 7.9.3 on Python 3.12.
+Tested against 7.9.3 on Python 3.12 and 3.14.
 
 ## The GUI
 
@@ -360,7 +360,7 @@ none. The folder build removes the wait instead of decorating it.
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
+| `tests/` | four suites, `python tests/run_all.py`, fifteen to twenty seconds |
 | `docs/` | the architecture as it stands, the review log by date, and the plan for taking the monoliths apart |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -754,8 +754,8 @@ and all of which are now fixed and mostly pinned:
   surface carries the deflection with it.
 * No model tree and no section planes. A 3D PDF in Acrobat has those; this does
   not.
-* The page needs `DecompressionStream` and WebGL2: Chrome/Edge 80+, Firefox
-  113+, Safari 16.4+. Anything older says so instead of drawing nothing.
+* The page needs `DecompressionStream` with `deflate-raw`, and WebGL2:
+  Chrome/Edge 103+, Firefox 113+, Safari 16.4+. Anything older says so instead of drawing nothing.
 * A size budget costs several builds and up to a minute. `--max-bytes none` is
   one build.
 
@@ -929,7 +929,7 @@ python tests/run_all.py
 исчезающую консоль, о которой ниже.
 
 `cadquery-ocp` — это OCCT. Больше ничего не требуется и ничего не используется.
-Проверено на 7.9.3 и Python 3.12.
+Проверено на 7.9.3 с Python 3.12 и 3.14.
 
 ## Окно программы
 
@@ -1129,7 +1129,7 @@ dist\step2html.exe --selftest some.step
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
-| `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
+| `tests/` | четыре набора, `python tests/run_all.py`, пятнадцать-двадцать секунд |
 | `docs/` | архитектура как есть, ревью по датам и план дробления монолитов |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация
@@ -1532,7 +1532,7 @@ Chrome отказывается скачивать `data:` длиннее при
   поверхность, несёт на себе отклонение.
 * Нет дерева модели и нет секущих плоскостей. У 3D PDF в Acrobat это есть,
   здесь — нет.
-* Странице нужны `DecompressionStream` и WebGL2: Chrome/Edge 80+, Firefox 113+,
+* Странице нужны `DecompressionStream` с `deflate-raw` и WebGL2: Chrome/Edge 103+, Firefox 113+,
   Safari 16.4+. Всё, что старше, скажет об этом, а не покажет пустоту.
 * Бюджет размера стоит нескольких сборок и до минуты времени.
   `--max-bytes none` — одна сборка.

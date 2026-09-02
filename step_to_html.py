@@ -29,7 +29,6 @@ import argparse
 import base64
 import html
 import math
-import os
 import re
 import stat
 import struct
@@ -60,7 +59,7 @@ try:
     from OCP.TDocStd import TDocStd_Document
     from OCP.TopAbs import (TopAbs_EDGE, TopAbs_FACE, TopAbs_Orientation,
                             TopAbs_SOLID)
-    from OCP.TopExp import TopExp, TopExp_Explorer
+    from OCP.TopExp import TopExp_Explorer
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
     from OCP.TopTools import TopTools_IndexedMapOfShape
@@ -77,7 +76,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.6"
+__version__ = "0.9.7"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
@@ -146,7 +145,7 @@ def today() -> str:
 TEXT = {
     "stats": "{parts} parts · {faces} faces · {triangles} triangles",
     "old_browser": "This browser is too old: no DecompressionStream. "
-                   "Needs Chrome/Edge 80+, Firefox 113+ or Safari 16.4+.",
+                   "Needs Chrome/Edge 103+, Firefox 113+ or Safari 16.4+.",
     "no_webgl": "WebGL2 is not available in this browser.",
     "unpack_failed": "Damaged file: the model data could not be decompressed. "
                      "Get an undamaged copy.",
@@ -236,9 +235,8 @@ def label_name(label: TDF_Label) -> str:
 
 def _srgb_byte(v: float) -> int:
     """OCCT hands back LINEAR components. Encode to sRGB so the byte matches
-    the #RRGGBB the user typed into simple3d_config.json - read raw, #B87333
-    copper arrives as (122, 44, 8). The shader linearises again before
-    lighting."""
+    the #RRGGBB the STEP was written with - read raw, #B87333 copper arrives
+    as (122, 44, 8). The shader linearises again before lighting."""
     s = 12.92 * v if v <= 0.0031308 else 1.055 * (v ** (1 / 2.4)) - 0.055
     return max(0, min(255, round(s * 255)))
 
@@ -1103,11 +1101,15 @@ function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)
   c=T[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
 
 async function boot(){
-  let b64=document.getElementById('geo').textContent.trim(), bin;
+  let b64=document.getElementById('geo').textContent.trim(), bin, ds;
+  // Two questions, asked apart, because they have different answers. The
+  // API arrived in Chrome 80 but the deflate-raw FORMAT only in 103, and a
+  // browser in between throws from the constructor - inside the same try as
+  // the unpacking, that read as "damaged file" about a file that was whole.
+  if(!('DecompressionStream' in window)) return fail(MSG.old);
+  try{ ds=new DecompressionStream('deflate-raw'); }catch(e){ return fail(MSG.old); }
   try{
     const packed=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
-    if(!('DecompressionStream' in window)) return fail(MSG.old);
-    const ds=new DecompressionStream('deflate-raw');
     const buf=await new Response(new Blob([packed]).stream().pipeThrough(ds)).arrayBuffer();
     bin=new Uint8Array(buf);
   }catch(e){return fail(MSG.unpack);}
@@ -2099,12 +2101,12 @@ async function boot(){
     const n=parseInt(e.key,10);
     if(n>=1&&n<=VIEWS.length){ showView(n-1); return; }
     const k=e.key.toLowerCase();
-    if(k==='e'){ const on=[...document.querySelectorAll('input[name=edge]')]
-        .find(r=>r.value===(edges?'off':'on')); on.checked=true;
-        on.dispatchEvent(new Event('change',{bubbles:true})); }
-    else if(k==='p'){ const on=[...document.querySelectorAll('input[name=proj]')]
-        .find(r=>r.value===(ortho?'persp':'ortho')); on.checked=true;
-        on.dispatchEvent(new Event('change',{bubbles:true})); }
+    if(k==='e'){ const radio=[...document.querySelectorAll('input[name=edge]')]
+        .find(r=>r.value===(edges?'off':'on')); radio.checked=true;
+        radio.dispatchEvent(new Event('change',{bubbles:true})); }
+    else if(k==='p'){ const radio=[...document.querySelectorAll('input[name=proj]')]
+        .find(r=>r.value===(ortho?'persp':'ortho')); radio.checked=true;
+        radio.dispatchEvent(new Event('change',{bubbles:true})); }
     else if(k==='m'){ measure.checked=!measure.checked;
         measure.dispatchEvent(new Event('change',{bubbles:true})); }
     else if(e.key==='Escape'){ marks=[]; markCir=[]; labelAt=null;
@@ -2514,6 +2516,10 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     samples = [(1.0, rep["bytes"])]
     floor = sum(rep["left"]) + 1.0e-4
     best = (page, rep, 1.0) if not budget or rep["bytes"] <= budget else None
+    # The smallest thing built so far, for the case where nothing fits. It
+    # was the FIRST build that went out in that case - page and rep are never
+    # reassigned by the loop - while the log claimed the smallest.
+    smallest = (page, rep, 1.0)
 
     def note(r, verdict):
         log(f"  {r['lin']:.4g} mm / {r['deg']:.3g} deg -> "
@@ -2547,6 +2553,8 @@ def convert(opts: Options, log=None, progress=None) -> Report:
                 break           # nowhere new left to look
             trial, trep = one_build(q)
             samples.append((q, trep["bytes"]))
+            if trep["bytes"] < smallest[1]["bytes"]:
+                smallest = (trial, trep, q)
             if trep["bytes"] > budget:
                 note(trep, "over budget")
             elif sum(trep["left"]) > floor:
@@ -2560,9 +2568,9 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     if best is None:
         # Nothing fitted, not even the coarsest tried. Give back the smallest
         # that was built rather than nothing at all, and say so.
-        best = (page, rep, 1.0)
+        best = smallest
         log(f"warning: nothing fitted the {budget:,} byte budget; keeping "
-            f"{rep['bytes']:,} bytes")
+            f"the smallest built, {smallest[1]['bytes']:,} bytes")
 
     page, rep, _q = best
     stats, missing = rep["stats"], rep["left"]
@@ -2570,7 +2578,11 @@ def convert(opts: Options, log=None, progress=None) -> Report:
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
         out.chmod(out.stat().st_mode | stat.S_IWRITE)   # a previous read-only
-    out.write_text(page, encoding="utf-8")
+    # newline="\n", or Windows writes every line ending as CR LF and the file
+    # on disk is one byte per template line - 1,382 of them - larger than the
+    # page the budget just weighed. Written the same way everywhere, the size
+    # reported is the size chosen.
+    out.write_text(page, encoding="utf-8", newline="\n")
     if opts.read_only:
         out.chmod(out.stat().st_mode & ~stat.S_IWRITE)
     progress(SPAN, SPAN, "done")

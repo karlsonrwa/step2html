@@ -8,6 +8,7 @@ promise is a lie and nobody would notice.
 from __future__ import annotations
 
 import base64
+import json
 import re
 import struct
 import sys
@@ -34,7 +35,10 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
         out = Path(tmp) / "fixture.html"
-        S.main([str(step), "-o", str(out), "--max-bytes", "none"])
+        # At a FIXED deflection, so the payload below can be compared with the
+        # golden one; the automatic figure is checked in test_repair.
+        S.main([str(step), "-o", str(out), "--max-bytes", "none",
+                "--deflection", "0.04", "--angle", "15"])
         page = out.read_text(encoding="utf-8")
 
         left = re.findall(r"__[A-Z_]+__", page)
@@ -124,6 +128,12 @@ def main():
         check("span*4" in page,
               "the pick ray starts in front of the model, not on the "
               "camera plane")
+        # An old browser is told so whichever way it is old: no API at all, or
+        # an API from before deflate-raw - Chrome 80 to 102 - whose
+        # constructor throws. Caught inside the unpacking's own try, that
+        # throw read as "damaged file" about a file that was whole.
+        check(page.count("fail(MSG.old)") == 2 and "103+" in page,
+              "an old browser is named as old, not as a damaged file")
 
         # ---- the measurement snaps, and says so ----------------------- #
         check("snapAt" in page and "rimPath" in page,
@@ -202,6 +212,25 @@ def main():
               "vertices, triangles and edges are all present",
               f"{nv} verts, {ni // 3} tri, {nei // 2} lines")
 
+        # ---- the golden payload ------------------------------------------- #
+        # The same fixture at the same deflection must pack to the same bytes,
+        # and this is what proves a MOVE changed nothing: the plan in
+        # docs/refactoring-plan.md carries most of the pipeline into other
+        # files, and a test that only checks the shapes of things would pass a
+        # transposed matrix. Tied to the OCCT that meshed it - a new OCCT may
+        # mesh differently, and then the file is regenerated on purpose:
+        #     python tests/test_page.py --golden
+        golden_path = Path(__file__).resolve().parent / "golden.json"
+        got = {"crc": crc, "raw": raw, "counts": [nv, ni, nev, nei, nfa, ncr]}
+        if "--golden" in sys.argv or not golden_path.is_file():
+            golden_path.write_text(json.dumps(got, indent=2) + "\n",
+                                   encoding="utf-8")
+            print(f"  note  golden payload written to {golden_path.name}")
+        else:
+            want = json.loads(golden_path.read_text(encoding="utf-8"))
+            check(got == want, "the payload is byte for byte the golden one",
+                  "" if got == want else f"got {got}, golden {want}")
+
         # ---- damage is detectable ----------------------------------------- #
         # Exactly what the page checks before it draws, done here in Python.
         def survives(mangled: str) -> bool:
@@ -223,6 +252,28 @@ def main():
         # it is right, and this pins that down as intended rather than missed.
         check(survives(b64[:mid] + " " + b64[mid:]),
               "inserted whitespace is accepted, because it changes nothing")
+
+        # ---- nothing fits: the smallest build goes out -------------------- #
+        # With a budget below anything the search can reach, what leaves is
+        # the smallest build there was - it used to be the FIRST, while the
+        # log claimed otherwise - and its size on disk is the size the log
+        # names: written with "\n", not with whatever the platform likes,
+        # which on Windows added a byte per template line after the weighing.
+        lines = []
+        tiny = S.convert(S.Options(step=str(step),
+                                   out=str(Path(tmp) / "tiny.html"),
+                                   max_bytes="1000"), log=lines.append)
+        built = [int(m.group(1).replace(",", ""))
+                 for m in (re.search(r"-> ([\d,]+) bytes", l) for l in lines)
+                 if m]
+        kept = [int(m.group(1).replace(",", ""))
+                for m in (re.search(r"keeping the smallest built, ([\d,]+)", l)
+                          for l in lines) if m]
+        check(len(built) >= 2 and tiny.size == min(built),
+              "when nothing fits, the smallest build is the one written",
+              f"built {built}, on disk {tiny.size:,}")
+        check(kept == [tiny.size], "and the log names the size that is on disk",
+              f"log says {kept}, disk says {tiny.size:,}")
 
     return 1 if FAILURES else 0
 
