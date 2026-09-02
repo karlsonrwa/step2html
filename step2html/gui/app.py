@@ -7,18 +7,15 @@ builds an Options and hands it to worker.run in a CHILD PROCESS, which is the
 same Options the CLI builds. One code path, two front ends - a second
 implementation of the pipeline behind a GUI is how the two drift apart.
 
-The log is coloured the way Simple 3D colours its own, and by the same rule:
-severity is read off the FIRST WORD of the line, so a message only has to say
-"warning: ..." once, in the pipeline, to be marked in the terminal and in the
-window alike.
+What is here is the widgets and the wiring between them. The child process
+and its channel are job.py, the coloured log is logpane.py, where the window
+goes is geometry.py, and what it remembers is settings.py - each of them
+without a window, and three of them tested without one.
 """
 from __future__ import annotations
 
-import json
 import multiprocessing as mp
 import os
-import re
-import queue
 import sys
 import webbrowser
 from pathlib import Path
@@ -78,28 +75,18 @@ try:
 except BaseException as _exc:      # SystemExit included: that is how core says it
     _cannot_start(_exc)
 
+from step2html.gui.geometry import (FIRST_RUN_SIZE, centred, parse, reachable,
+                                    virtual_screen)
+from step2html.gui.job import Job
+from step2html.gui.logpane import COLOURS, MUTED, LogPane, severity_of  # noqa: F401 - COLOURS and severity_of are this module's public face too
+from step2html.gui.settings import Settings
+
 # The project folder, two levels up from this file: the settings file sits
 # beside step2html.cmd, where it always has, and not inside the package.
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "step2html_config.json"
 
-# Colours, and the rule that picks them. Matched to Simple 3D so the two tools
-# read the same way side by side.
-COLOURS = {"warning": "#d9791e", "error": "#8b0000", "success": "#1a7f2e"}
-MUTED = "#555"
-ERROR_PREFIXES = ("error", "traceback")
-WARNING_PREFIXES = ("warning", "ignored", "ignoring")
-
 STEP_TYPES = [("STEP files", "*.step *.stp *.STEP *.STP"), ("All files", "*.*")]
-
-
-def severity_of(message: str) -> str | None:
-    low = message.lstrip().lower()
-    if low.startswith(ERROR_PREFIXES):
-        return "error"
-    if low.startswith(WARNING_PREFIXES):
-        return "warning"
-    return None
 
 
 class App:
@@ -108,34 +95,39 @@ class App:
 
     def __init__(self, root: tk.Misc):
         self.root = root
-        self.proc = None
-        self.channel = None
-        self._saved_geometry = ""
-        self._saved_state = "normal"
+        self.job: Job | None = None
         self._last_normal_geometry = ""
 
         root.title(f"step2html {__version__}")
         root.minsize(620, 520)
 
+        # The defaults live in Settings, and a settings file overrides them
+        # field by field; the widgets are then built from the result.
+        s = self.settings = Settings.load(CONFIG)
         self.step_path = tk.StringVar()
         self.out_path = tk.StringVar()
-        self.title_text = tk.StringVar()
-        self.auto_deflection = tk.BooleanVar(value=True)
-        self.deflection = tk.StringVar(value="0.02")
-        self.angle = tk.StringVar(value="15")
-        self.budget_mode = tk.StringVar(value="auto")     # auto | none | fixed
-        self.budget_mb = tk.StringVar(value="")
-        self.repair = tk.BooleanVar(value=True)
-        self.read_only = tk.BooleanVar(value=False)
-        self.open_when_done = tk.BooleanVar(value=True)
+        self.title_text = tk.StringVar(value=s.title)
+        self.auto_deflection = tk.BooleanVar(value=s.auto_deflection)
+        self.deflection = tk.StringVar(value=s.deflection)
+        self.angle = tk.StringVar(value=s.angle)
+        self.budget_mode = tk.StringVar(value=s.budget_mode)   # auto | none | fixed
+        self.budget_mb = tk.StringVar(value=s.budget_mb)
+        self.repair = tk.BooleanVar(value=s.repair)
+        self.read_only = tk.BooleanVar(value=s.read_only)
+        self.open_when_done = tk.BooleanVar(value=s.open_when_done)
         self.status = tk.StringVar(value="Ready")
 
         self._build_widgets()
-        self._load_config()
         self._sync_enabled()
         self._restore_geometry()
         root.bind("<Configure>", self._remember_geometry)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    @property
+    def proc(self):
+        """The child process while one runs, else None - what a test and the
+        frozen build's --selftest wait on."""
+        return self.job.proc if self.job is not None else None
 
     # ---------------------------------------------------------------- layout
 
@@ -225,15 +217,13 @@ class App:
         ttk.Label(frame, textvariable=self.status, foreground=MUTED).grid(
             row=9, column=0, columnspan=3, sticky="w")
 
-        self.log_view = tk.Text(frame, height=14, wrap="word", state="disabled")
+        self.log_view = LogPane(frame)
         self.log_view.grid(row=10, column=0, columnspan=3, sticky="nsew",
                            pady=(6, 0))
         frame.rowconfigure(10, weight=1)
         bar = ttk.Scrollbar(frame, command=self.log_view.yview)
         bar.grid(row=10, column=3, sticky="ns", pady=(6, 0))
         self.log_view.configure(yscrollcommand=bar.set)
-        for name, colour in COLOURS.items():
-            self.log_view.tag_configure(name, foreground=colour)
 
     def _sync_enabled(self) -> None:
         """State FLAGS, the same mechanism _busy uses. The "state" option is a
@@ -265,7 +255,7 @@ class App:
         current = self.step_path.get().strip()
         if current:
             return str(Path(current).parent)
-        return self._remembered("last_step_dir")
+        return self.settings.last_step_dir
 
     def set_step(self, name: str) -> None:
         """Point at a STEP; the output goes BESIDE IT, every time.
@@ -306,13 +296,6 @@ class App:
                 return str(Path(candidate).parent)
         return ""
 
-    def _remembered(self, key: str) -> str:
-        # No hasattr guard: _load_config sets _config unconditionally, and it
-        # runs in __init__ before any control can call this. A check that
-        # cannot fail reads as coverage of a case that does not exist - the
-        # same species the first review found in the tests.
-        return self._config.get(key, "")
-
     # ---------------------------------------------------------------- running
 
     def options(self) -> core.Options:
@@ -341,7 +324,7 @@ class App:
         )
 
     def generate(self) -> None:
-        if self.proc is not None:
+        if self.job is not None:
             return
         try:
             opts = self.options()
@@ -363,65 +346,45 @@ class App:
         self.clear_log()
         self.log(f"Converting {Path(opts.step).name}", "success")
         self._busy(True)
-        self.channel = mp.Queue()
-        self.proc = mp.Process(target=worker.run, args=(opts, self.channel),
-                               daemon=True)
-        self.proc.start()
+        self.job = Job(worker.run, (opts,), on_log=self.log,
+                       on_progress=self._on_progress, on_done=self._on_done,
+                       on_error=self._on_error)
+        self.job.start()
         self._poll()
 
     def cancel(self) -> None:
-        if self.proc is None:
+        if self.job is None:
             return
-        self.proc.terminate()
+        self.job.cancel()
         self.log("warning: cancelled")
         self._finish("Cancelled")
 
     def _poll(self) -> None:
         self.pump()
-        if self.proc is not None:
+        if self.job is not None:
             self.root.after(80, self._poll)
 
     def pump(self) -> None:
         """Drain the channel once. Split out so a test can step the machine
         without a mainloop."""
-        # Taken locally: handling "done" or "error" clears self.channel, and
-        # reading it again on the next turn of this loop would be a crash.
-        channel = self.channel
-        while channel is not None:
-            try:
-                kind, payload = channel.get_nowait()
-            except queue.Empty:
-                break
-            if kind == "log":
-                self.log(payload)
-            elif kind == "progress":
-                value, total, label = payload
-                self.progress["maximum"] = max(total, 1)
-                self.progress["value"] = value
-                if label:
-                    self.status.set(label)
-            elif kind == "error":
-                self.log("error: " + str(payload))
-                self._finish("Failed")
-                break
-            elif kind == "done":
-                summary, output = payload
-                self.log(summary, "success")
-                self._finish(summary)
-                if self.open_when_done.get():
-                    self.open_result(Path(output))
-                break
+        if self.job is not None:
+            self.job.pump()
 
-        # A child that died without saying anything died hard - an access
-        # violation inside OCCT looks exactly like this, and saying so beats
-        # a window that just goes quiet.
-        if self.proc is not None and not self.proc.is_alive():
-            code = self.proc.exitcode
-            if code not in (0, None):
-                self.log(f"error: the build process stopped with exit code "
-                         f"{code}, without reporting anything. That is usually "
-                         f"a crash inside OCCT.")
-                self._finish("Failed")
+    def _on_progress(self, value, total, label) -> None:
+        self.progress["maximum"] = max(total, 1)
+        self.progress["value"] = value
+        if label:
+            self.status.set(label)
+
+    def _on_done(self, summary: str, output: str) -> None:
+        self.log(summary, "success")
+        self._finish(summary)
+        if self.open_when_done.get():
+            self.open_result(Path(output))
+
+    def _on_error(self, text: str) -> None:
+        self.log("error: " + text)
+        self._finish("Failed")
 
     @staticmethod
     def open_result(path: Path) -> None:
@@ -446,20 +409,9 @@ class App:
             webbrowser.open(path.as_uri())
 
     def _finish(self, message: str) -> None:
-        if self.proc is not None:
-            if self.proc.is_alive():
-                self.proc.terminate()
-            self.proc = None
-        # Closed, not merely dropped: a Queue carries a feeder thread, and a
-        # window that has run a dozen conversions should not be holding a
-        # dozen of them.
-        if self.channel is not None:
-            try:
-                self.channel.close()
-                self.channel.cancel_join_thread()
-            except Exception:
-                pass
-        self.channel = None
+        if self.job is not None:
+            self.job.cancel()             # nothing, if it has already ended
+            self.job = None
         self.status.set(message)
         self._busy(False)
 
@@ -503,88 +455,45 @@ class App:
     # ------------------------------------------------------------------- log
 
     def log(self, message: str, severity: str | None = None) -> None:
-        severity = severity or severity_of(message)
-        self.log_view.configure(state="normal")
-        self.log_view.insert("end", message.rstrip() + "\n",
-                             severity or ())
-        self.log_view.see("end")
-        self.log_view.configure(state="disabled")
+        self.log_view.log(message, severity)
 
     def clear_log(self) -> None:
-        self.log_view.configure(state="normal")
-        self.log_view.delete("1.0", "end")
-        self.log_view.configure(state="disabled")
-
+        self.log_view.clear()
 
     # --------------------------------------------------- window placement --
 
-    FIRST_RUN_SIZE = (700, 720)
-
-    def _virtual_screen(self):
-        """(x, y, w, h) covering EVERY monitor, not just the primary one.
-
-        Tk's winfo_screenwidth/height describe the primary display only, so a
-        window legitimately sitting on a second monitor looks off-screen by
-        those numbers - which is exactly the case this exists for. Windows
-        reports the whole virtual desktop through GetSystemMetrics, and a
-        monitor left of the primary gives a negative origin.
-        """
-        try:
-            import ctypes
-            metrics = ctypes.windll.user32.GetSystemMetrics
-            x, y, w, h = (metrics(i) for i in (76, 77, 78, 79))
-            if w > 0 and h > 0:
-                return x, y, w, h
-        except Exception:
-            pass
-        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-
-    def _reachable(self, w, h, x, y) -> bool:
-        """Can the window actually be seen and grabbed here?
-
-        The case that matters: it was last closed on a second monitor that is
-        no longer attached. Restoring those coordinates puts it somewhere
-        invisible with no way to drag it back, which reads as the program
-        failing to start.
-        """
-        vx, vy, vw, vh = self._virtual_screen()
-        if y < vy:
-            return False                       # title bar above every screen
-        seen_w = max(0, min(x + w, vx + vw) - max(x, vx))
-        seen_h = max(0, min(y + h, vy + vh) - max(y, vy))
-        return seen_w >= 120 and seen_h >= 40
+    def _screen(self):
+        """The whole virtual desktop, with the primary display as the answer
+        wherever Windows cannot be asked."""
+        return virtual_screen((0, 0, self.root.winfo_screenwidth(),
+                               self.root.winfo_screenheight()))
 
     def _centre(self) -> None:
         """A first run, or a remembered position that is no longer usable."""
         self.root.update_idletasks()
-        w, h = self.FIRST_RUN_SIZE
+        w, h = FIRST_RUN_SIZE
         h = max(h, self.root.winfo_reqheight())
         self.root.geometry(f"{w}x{h}")
         self.root.update_idletasks()
-        x = max(0, (self.root.winfo_screenwidth() - w) // 2)
-        y = max(0, (self.root.winfo_screenheight() - h) // 3)
+        x, y = centred(w, h, self.root.winfo_screenwidth(),
+                       self.root.winfo_screenheight())
         self.root.geometry(f"+{x}+{y}")
 
     def _restore_geometry(self) -> None:
-        if self._saved_geometry:
-            # Tk writes a negative coordinate as "+-1920", so the sign sits
-            # after the plus. A bare "-1920" means something else entirely -
-            # an offset from the right edge - hence the "+" form only.
-            match = re.match(r"^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$",
-                             self._saved_geometry.strip())
-            if match:
-                w, h, x, y = (int(g) for g in match.groups())
-                if self._reachable(w, h, x, y):
-                    self.root.geometry(f"{w}x{h}+{x}+{y}")
-                    if self._saved_state == "zoomed":
-                        try:
-                            self.root.state("zoomed")
-                        except tk.TclError:
-                            pass
-                    return
-                self.root.after(200, lambda: self.log(
-                    "warning: the remembered window position is off-screen (a "
-                    "monitor may have been disconnected); centred instead"))
+        remembered = parse(self.settings.geometry)
+        if remembered is not None:
+            w, h, x, y = remembered
+            if reachable(w, h, x, y, self._screen()):
+                self.root.geometry(f"{w}x{h}+{x}+{y}")
+                if self.settings.window_state == "zoomed":
+                    try:
+                        self.root.state("zoomed")
+                    except tk.TclError:
+                        pass
+                return
+            self.root.after(200, lambda: self.log(
+                "warning: the remembered window position is off-screen (a "
+                "monitor may have been disconnected); centred instead"))
         self._centre()
 
     def _remember_geometry(self, event=None) -> None:
@@ -608,46 +517,13 @@ class App:
             geometry = self.root.winfo_geometry()
         except tk.TclError:
             return
-        if re.match(r"^\d+x\d+\+-?\d+\+-?\d+$", geometry):
+        if parse(geometry) is not None:
             self._last_normal_geometry = geometry
 
     # ---------------------------------------------------------------- config
 
-    def _load_config(self) -> None:
-        self._config = {}
-        try:
-            self._config = json.loads(CONFIG.read_text(encoding="utf-8"))
-        except Exception:
-            return          # absent or unreadable: defaults, quietly
-        c = self._config
-        self.title_text.set(c.get("title", ""))
-        self.auto_deflection.set(bool(c.get("auto_deflection", True)))
-        self.deflection.set(str(c.get("deflection", "0.02")))
-        self.angle.set(str(c.get("angle", "15")))
-        self.budget_mode.set(c.get("budget_mode", "auto"))
-        self.budget_mb.set(str(c.get("budget_mb", "")))
-        self.repair.set(bool(c.get("repair", True)))
-        self.read_only.set(bool(c.get("read_only", False)))
-        self.open_when_done.set(bool(c.get("open_when_done", True)))
-        self._saved_geometry = c.get("geometry", "")
-        self._saved_state = c.get("window_state", "normal")
-
     def save_config(self) -> None:
         step = self.step_path.get().strip()
-        data = {
-            # Only where the MODELS are. The output folder is deliberately not
-            # remembered - see set_step.
-            "last_step_dir": str(Path(step).parent) if step else "",
-            "title": self.title_text.get().strip(),
-            "auto_deflection": self.auto_deflection.get(),
-            "deflection": self.deflection.get().strip(),
-            "angle": self.angle.get().strip(),
-            "budget_mode": self.budget_mode.get(),
-            "budget_mb": self.budget_mb.get().strip(),
-            "repair": self.repair.get(),
-            "read_only": self.read_only.get(),
-            "open_when_done": self.open_when_done.get(),
-        }
         # The NON-maximized rectangle, plus whether it was maximized - so a
         # window closed maximized comes back maximized and unmaximizes to the
         # size it had before, rather than to the whole screen.
@@ -655,19 +531,29 @@ class App:
             state = self.root.state()
         except tk.TclError:
             state = "normal"
-        data["window_state"] = "zoomed" if state == "zoomed" else "normal"
-        data["geometry"] = (self._last_normal_geometry
-                            or self._saved_geometry
-                            or (self.root.winfo_geometry()
-                                if state == "normal" else ""))
-        try:
-            CONFIG.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError:
-            pass            # a read-only folder must not stop the window closing
+        Settings(
+            # Only where the MODELS are. The output folder is deliberately not
+            # remembered - see set_step.
+            last_step_dir=str(Path(step).parent) if step else "",
+            title=self.title_text.get().strip(),
+            auto_deflection=self.auto_deflection.get(),
+            deflection=self.deflection.get().strip(),
+            angle=self.angle.get().strip(),
+            budget_mode=self.budget_mode.get(),
+            budget_mb=self.budget_mb.get().strip(),
+            repair=self.repair.get(),
+            read_only=self.read_only.get(),
+            open_when_done=self.open_when_done.get(),
+            window_state="zoomed" if state == "zoomed" else "normal",
+            geometry=(self._last_normal_geometry
+                      or self.settings.geometry
+                      or (self.root.winfo_geometry()
+                          if state == "normal" else "")),
+        ).save(CONFIG)            # a read-only folder must not stop the window closing
 
     def _on_close(self) -> None:
-        if self.proc is not None and self.proc.is_alive():
-            self.proc.terminate()
+        if self.job is not None:
+            self.job.cancel()
         self.save_config()
         self.root.destroy()
 

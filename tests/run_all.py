@@ -15,10 +15,13 @@ JOBS = [
     # arithmetic is reported before seven seconds of meshing.
     ("the budget search",        TESTS / "test_budget.py"),
     ("the progress bar",         TESTS / "test_progress.py"),
+    ("window geometry",          TESTS / "test_geometry.py"),
     ("colours and geometry",     TESTS / "test_model.py"),
     ("the generated page",       TESTS / "test_page.py"),
     ("repairing a refused face", TESTS / "test_repair.py"),
     ("the window",               TESTS / "test_gui.py"),
+    # No OCCT either, but each child is a fresh interpreter, so it is not fast.
+    ("the child process",        TESTS / "test_job.py"),
 ]
 
 

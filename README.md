@@ -357,12 +357,12 @@ none. The folder build removes the wait instead of decorating it.
 | | |
 |---|---|
 | `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them from the template in `viewer/` - markup, stylesheet and script as three files; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
-| `step2html/gui/` | the window, `python -m step2html.gui`. Builds the same `Options` and hands it to the worker |
+| `step2html/gui/` | the window, `python -m step2html.gui`. `app.py` is the widgets and the wiring, and builds the same `Options` the CLI does; `job.py` is the child process and its channel, `logpane.py` the coloured log, `geometry.py` where the window goes, `settings.py` what it remembers - none of those four needs a window, and three are tested without one |
 | `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | six suites, `python tests/run_all.py`, fifteen to twenty seconds; two of them - the budget search and the progress bar - need no OCCT and run in a millisecond |
+| `tests/` | eight suites, `python tests/run_all.py`, twenty to thirty seconds; four of them - the budget search, the progress bar, window geometry and the child process - need no OCCT |
 | `docs/` | the architecture as it stands, the review log by date, and the plan for taking the monoliths apart |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -1128,12 +1128,12 @@ dist\step2html.exe --selftest some.step
 | | |
 |---|---|
 | `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу по шаблону из `viewer/` — разметка, стили и скрипт тремя файлами; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
-| `step2html/gui/` | окно, `python -m step2html.gui`. Собирает тот же самый `Options` и отдаёт его воркеру |
+| `step2html/gui/` | окно, `python -m step2html.gui`. `app.py` — виджеты и проводка, собирает тот же самый `Options`, что и командная строка; `job.py` — дочерний процесс и канал от него, `logpane.py` — цветной лог, `geometry.py` — где окну стоять, `settings.py` — что оно помнит; ни одному из четырёх окно не нужно, а трём не нужно и для тестов |
 | `step2html/worker.py` | `convert` в дочернем процессе. Ничто на пути к нему не должно создавать `Tk()`: на Windows дочерний процесс порождается заново и импортирует главный модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
-| `tests/` | шесть наборов, `python tests/run_all.py`, пятнадцать-двадцать секунд; двум из них — поиску по бюджету и полосе прогресса — OCCT не нужен, они проходят за миллисекунду |
+| `tests/` | восемь наборов, `python tests/run_all.py`, двадцать-тридцать секунд; четырём из них — поиску по бюджету, полосе прогресса, геометрии окна и дочернему процессу — OCCT не нужен |
 | `docs/` | архитектура как есть, ревью по датам и план дробления монолитов |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация
