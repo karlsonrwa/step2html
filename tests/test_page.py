@@ -16,19 +16,9 @@ import tempfile
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+from harness import check, run
 import step_to_html as S
 from fixtures import coloured_assembly
-
-FAILURES = []
-
-
-def check(ok, what, detail=""):
-    print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(what)
 
 
 def main():
@@ -275,9 +265,6 @@ def main():
         check(kept == [tiny.size], "and the log names the size that is on disk",
               f"log says {kept}, disk says {tiny.size:,}")
 
-    return 1 if FAILURES else 0
-
 
 if __name__ == "__main__":
-    print("the generated page")
-    sys.exit(main())
+    sys.exit(run(main, "the generated page"))

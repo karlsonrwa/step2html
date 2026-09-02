@@ -18,22 +18,12 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import tkinter as tk
 
+from harness import check, run
 import gui
 import step_to_html as core
 from fixtures import coloured_assembly
-
-FAILURES = []
-
-
-def check(ok, what, detail=""):
-    print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(what)
 
 
 def tags_in(app):
@@ -233,10 +223,8 @@ def main():
               f"angle={second.angle.get()} mode={second.budget_mode.get()}")
 
     root.destroy()
-    return 1 if FAILURES else 0
 
 
 if __name__ == "__main__":
     mp.freeze_support()
-    print("the window")
-    sys.exit(main())
+    sys.exit(run(main, "the window"))

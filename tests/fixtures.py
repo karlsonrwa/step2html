@@ -20,12 +20,12 @@ from OCP.STEPControl import STEPControl_StepModelType
 from OCP.TCollection import TCollection_ExtendedString
 from OCP.TDataStd import TDataStd_Name
 from OCP.TDocStd import TDocStd_Document
-from OCP.TopAbs import TopAbs_FACE
-from OCP.TopExp import TopExp_Explorer
 from OCP.TopLoc import TopLoc_Location
-from OCP.TopoDS import TopoDS, TopoDS_Compound
+from OCP.TopoDS import TopoDS_Compound
 from OCP.XCAFApp import XCAFApp_Application
 from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
+
+from step_to_html import _faces
 
 # What the fixture is painted with, as the sRGB bytes the reader must recover.
 BODY = (0x1A, 0x59, 0x24)      # the box
@@ -49,15 +49,6 @@ PLATE_AT = (0.0, 40.0, 0.0)
 def _q(rgb):
     return Quantity_Color(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0,
                           Quantity_TypeOfColor.Quantity_TOC_sRGB)
-
-
-def _faces(shape):
-    out = []
-    exp = TopExp_Explorer(shape, TopAbs_FACE)
-    while exp.More():
-        out.append(TopoDS.Face_s(exp.Current()))
-        exp.Next()
-    return out
 
 
 def coloured_assembly(path: Path) -> Path:

@@ -11,9 +11,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+from harness import ANGULAR, check, run
 import step_to_html as S
 from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_B, RIM,
                       coloured_assembly)
@@ -23,14 +21,6 @@ from OCP.BRep import BRep_Builder
 from OCP.BRepBndLib import BRepBndLib
 from OCP.TopoDS import TopoDS_Compound
 
-FAILURES = []
-
-
-def check(ok, what, detail=""):
-    print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(what)
-
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
@@ -38,7 +28,7 @@ def main():
         doc = S.read_step(step)
         parts, color_tool = S.collect_parts(doc)
         linear = S.auto_deflection(parts)
-        angular = 15 * 3.141592653589793 / 180.0
+        angular = ANGULAR
         parts, _rescued, left = S.repair_parts(
             parts, color_tool, linear, angular, lambda _m: None)
         pos, nrm, col, idx, epos, eidx, stats = S.tessellate(
@@ -119,9 +109,6 @@ def main():
               f"{stats['edges_from_mesh']} from the mesh")
         check(not left, "every face meshed")
 
-    return 1 if FAILURES else 0
-
 
 if __name__ == "__main__":
-    print("colours and geometry")
-    sys.exit(main())
+    sys.exit(run(main, "colours and geometry"))

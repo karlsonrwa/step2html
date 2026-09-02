@@ -18,34 +18,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+from harness import ANGULAR, area, check, run
 import step_to_html as S
 from fixtures import coloured_assembly
 
 from OCP.BRep import BRep_Tool
-from OCP.BRepGProp import BRepGProp
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCP.BRepTools import BRepTools
-from OCP.GProp import GProp_GProps
 from OCP.TopLoc import TopLoc_Location
-
-FAILURES = []
-ANGULAR = 15 * 3.141592653589793 / 180.0
-
-
-def check(ok, what, detail=""):
-    print(f"  {'pass' if ok else 'FAIL'}  {what}" + (f"   {detail}" if detail else ""))
-    if not ok:
-        FAILURES.append(what)
-
-
-def _area(shape) -> float:
-    props = GProp_GProps()
-    BRepGProp.SurfaceProperties_s(shape, props)
-    return props.Mass()
 
 
 def build(step, repair):
@@ -100,7 +81,7 @@ def main():
         # meshed happily. So the patch is exercised on a healthy closed face
         # instead, which pins what a patch must be whatever asked for it.
         cyl = BRepPrimAPI_MakeCylinder(1.5, 6.0).Shape()
-        lateral = max(S._faces(cyl), key=_area)      # the closed periodic one
+        lateral = max(S._faces(cyl), key=area)       # the closed periodic one
         patch = S._patch_face(lateral, 0.04, ANGULAR)
         check(patch is not None, "a patch comes back at all")
         if patch is not None:
@@ -112,7 +93,7 @@ def main():
             # A patch stands in for the face it replaces, so it has to cover
             # the same surface. Mangled by the split, it would be a hole or a
             # doubled face, and nothing else here would notice.
-            a0, a1 = _area(lateral), _area(patch)
+            a0, a1 = area(lateral), area(patch)
             check(abs(a1 - a0) <= a0 * 1e-6,
                   "and it covers exactly the face it stands in for",
                   f"{a0:.5f} -> {a1:.5f} mm2")
@@ -166,9 +147,6 @@ def main():
               "an unreadable STEP raises ConvertError, catchable by the worker",
               f"{raised}: {detail[:60]}")
 
-    return 1 if FAILURES else 0
-
 
 if __name__ == "__main__":
-    print("repairing a refused face")
-    sys.exit(main())
+    sys.exit(run(main, "repairing a refused face"))

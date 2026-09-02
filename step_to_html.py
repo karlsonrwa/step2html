@@ -76,7 +76,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
         f"or start this with the Python that already has it."
     )
 
-__version__ = "0.9.7"
+__version__ = "0.9.8"
 """The one place the number lives; pyproject reads it from here.
 
 Semantic, bumped by hand: a patch is a fix, a minor is a new capability or a
