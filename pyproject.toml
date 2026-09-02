@@ -21,18 +21,19 @@ dependencies = [
 ]
 
 [project.scripts]
-step2html = "step_to_html:main"
+step2html = "step2html.cli:main"
 
 [project.gui-scripts]
-step2html-gui = "gui:main"
+step2html-gui = "step2html.gui.app:main"
 
 [tool.setuptools.dynamic]
-# One place for the number, and it is the source file. Repeating it
+# One place for the number, and it is the package itself. Repeating it
 # here is how the two drift apart.
-version = { attr = "step_to_html.__version__" }
+version = { attr = "step2html.__version__" }
 
 [tool.setuptools]
-# Flat modules on purpose. step_to_html.py is the whole pipeline and can
-# still be copied anywhere on its own; gui.py and worker.py sit beside it
-# and are only needed for the window.
-py-modules = ["step_to_html", "gui", "worker"]
+# One package, one module per concern - docs/architecture.md says which is
+# which. It used to be three flat modules, and two of them were called gui
+# and worker: names that general, installed at the top level, are a
+# collision waiting for a machine with one more package on it.
+packages = ["step2html", "step2html.gui"]

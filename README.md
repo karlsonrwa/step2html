@@ -35,14 +35,16 @@ It works on any STEP, not only on boards.
 ## How it works
 
 ```bash
-python step_to_html.py board.step
+python -m step2html board.step
 ```
 
 That writes `board.html` beside it. Or, with a window around it:
 
 ```bash
-python gui.py
+python -m step2html.gui
 ```
+
+Installed, the same two are `step2html` and `step2html-gui`.
 
 Inside the file:
 
@@ -169,11 +171,11 @@ Tested against 7.9.3 on Python 3.12 and 3.14.
 
 ## The GUI
 
-**Start it with `step2html.cmd`**, or with `python gui.py` from a console.
-Double-clicking `gui.py` is the one way that can quietly fail: Windows hands a
-`.py` to whichever Python the file association picks — usually the `py`
-launcher — and on a machine with several Pythons installed that need not be the
-one OCP is in. The window then cannot start, says exactly why, and says it to a
+**Start it with `step2html.cmd`**, with `python -m step2html.gui` from a
+console, or as `step2html-gui` once installed. Starting it with the wrong
+Python is the one way that can quietly fail: on a machine with several Pythons
+installed, the one that answers to `python` — or to a double-clicked `.py`,
+through the file association — need not be the one OCP is in. The window then cannot start, says exactly why, and says it to a
 console that closes in the same instant, so what you see is a black flash. It
 has been reported twice, with the same workaround both times: a batch file,
 which keeps the console alive.
@@ -206,8 +208,8 @@ window is centred instead, rather than opening somewhere invisible.
 ## Options
 
 ```
-step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
-                     [--angle DEG] [--max-bytes N] [--no-repair] [--read-only]
+step2html STEP [-o OUT] [--title TITLE] [--deflection MM]
+               [--angle DEG] [--max-bytes N] [--no-repair] [--read-only]
 ```
 
 | | |
@@ -354,9 +356,9 @@ none. The folder build removes the wait instead of decorating it.
 
 | | |
 |---|---|
-| `step_to_html.py` | the whole pipeline, and the page template. `convert(Options, log, progress)` is the one entry point; `main()` is a thin CLI over it |
-| `gui.py` | the window. Builds the same `Options` and hands it to the worker |
-| `worker.py` | `convert` in a child process. Must never import tkinter: on Windows the child is spawned and re-imports it |
+| `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
+| `step2html/gui/` | the window, `python -m step2html.gui`. Builds the same `Options` and hands it to the worker |
+| `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
@@ -370,7 +372,7 @@ of the pipeline behind a GUI is how the two drift apart, and
 ## Versions
 
 Semantic, bumped by hand, and the number lives in `__version__` in
-`step_to_html.py` — `pyproject.toml` reads it from there, so there is one place
+`step2html/__init__.py` — `pyproject.toml` reads it from there, so there is one place
 to change and nothing to keep in step. A patch is a fix; a minor is a new
 capability or a change to what the generated file looks like.
 
@@ -798,14 +800,16 @@ PRC — тот, что несёт в себе Asymptote, под лицензие
 ## Как это работает
 
 ```bash
-python step_to_html.py board.step
+python -m step2html board.step
 ```
 
 Рядом появится `board.html`. Либо с окном:
 
 ```bash
-python gui.py
+python -m step2html.gui
 ```
+
+После установки то же самое — `step2html` и `step2html-gui`.
 
 Что внутри файла:
 
@@ -933,11 +937,11 @@ python tests/run_all.py
 
 ## Окно программы
 
-**Запускать через `step2html.cmd`** или командой `python gui.py` из консоли.
-Двойной щелчок по `gui.py` — единственный способ, который может тихо не
-сработать: Windows отдаёт `.py` тому Python, который прописан в ассоциации
-(обычно это лаунчер `py`), а на машине с несколькими Python это не обязательно
-тот, в который поставлен OCP. Окно тогда не запускается, честно говорит почему
+**Запускать через `step2html.cmd`**, командой `python -m step2html.gui` из
+консоли или как `step2html-gui` после установки. Единственный способ, который
+может тихо не сработать, — запустить окно не тем Python: на машине с
+несколькими Python тот, что отзывается на `python` (или на двойной щелчок по
+`.py` через ассоциацию файлов), не обязательно тот, в который поставлен OCP. Окно тогда не запускается, честно говорит почему
 — и говорит это в консоль, которая закрывается в ту же секунду, так что видно
 только чёрную вспышку. Об этом сообщили дважды, и оба раза с одним и тем же
 обходным путём: батник, который консоль не даёт закрыть.
@@ -970,8 +974,8 @@ Simple 3D, есть индикатор выполнения и кнопка от
 ## Ключи
 
 ```
-step_to_html.py STEP [-o OUT] [--title TITLE] [--deflection MM]
-                     [--angle DEG] [--max-bytes N] [--no-repair] [--read-only]
+step2html STEP [-o OUT] [--title TITLE] [--deflection MM]
+               [--angle DEG] [--max-bytes N] [--no-repair] [--read-only]
 ```
 
 | | |
@@ -1123,9 +1127,9 @@ dist\step2html.exe --selftest some.step
 
 | | |
 |---|---|
-| `step_to_html.py` | весь конвейер и шаблон страницы. `convert(Options, log, progress)` — единственная точка входа, `main()` — тонкая обёртка командной строки |
-| `gui.py` | окно. Собирает тот же самый `Options` и отдаёт его воркеру |
-| `worker.py` | `convert` в дочернем процессе. Не должен импортировать tkinter: на Windows дочерний процесс порождается заново и импортирует модуль с нуля |
+| `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
+| `step2html/gui/` | окно, `python -m step2html.gui`. Собирает тот же самый `Options` и отдаёт его воркеру |
+| `step2html/worker.py` | `convert` в дочернем процессе. Ничто на пути к нему не должно создавать `Tk()`: на Windows дочерний процесс порождается заново и импортирует главный модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
@@ -1139,7 +1143,7 @@ dist\step2html.exe --selftest some.step
 ## Версии
 
 Семантические, поднимаются вручную, число живёт в `__version__` в
-`step_to_html.py` — `pyproject.toml` читает его оттуда, так что менять надо в
+`step2html/__init__.py` — `pyproject.toml` читает его оттуда, так что менять надо в
 одном месте и нечему рассинхронизироваться. Патч — исправление; minor — новая
 возможность или изменение того, как выглядит генерируемый файл.
 

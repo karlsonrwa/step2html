@@ -37,7 +37,11 @@ a = Analysis(
     pathex=[REPO],
     binaries=[],
     datas=[],
-    hiddenimports=["step_to_html", "gui", "worker"],
+    # The window and the worker are reached through imports the analysis can
+    # see, but named anyway: a child process starts from THIS executable and
+    # imports step2html.worker by name, with nothing static pointing at it.
+    hiddenimports=["step2html", "step2html.cli", "step2html.convert",
+                   "step2html.worker", "step2html.gui", "step2html.gui.app"],
     excludes=EXCLUDE,
     noarchive=False,
     optimize=2,                 # docstrings out of the bundled bytecode

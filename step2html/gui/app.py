@@ -1,6 +1,6 @@
-"""A window around step_to_html.
+"""A window around the pipeline.
 
-    python gui.py
+    python -m step2html.gui
 
 Every command line flag has a control here and nothing else does: the window
 builds an Options and hands it to worker.run in a CHILD PROCESS, which is the
@@ -26,6 +26,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from step2html import __version__
+
 
 def _cannot_start(problem: BaseException) -> "None":
     """Say it in a WINDOW, because the console is about to disappear.
@@ -50,10 +52,10 @@ def _cannot_start(problem: BaseException) -> "None":
     where = ("" if sys.executable in str(problem)
              else f"\n\nStarted with: {sys.executable}")
     text = (f"{problem}{where}\n\n"
-            f"Double-clicking gui.py runs whichever Python Windows has "
-            f"associated with .py, which need not be the right one. "
-            f"step2html.cmd, beside this file, runs a Python of your choosing "
-            f"and keeps the console open when something goes wrong.")
+            f"The usual cause is a Python other than the one OCP was "
+            f"installed into. step2html.cmd, in the project folder, runs a "
+            f"Python of your choosing and keeps the console open when "
+            f"something goes wrong.")
     try:
         root = tk.Tk()
         root.withdraw()
@@ -71,13 +73,15 @@ def _cannot_start(problem: BaseException) -> "None":
 
 
 try:
-    import step_to_html as core
-    import worker
+    from step2html import convert as core
+    from step2html import worker
 except BaseException as _exc:      # SystemExit included: that is how core says it
     _cannot_start(_exc)
 
-HERE = Path(__file__).resolve().parent
-CONFIG = HERE / "step2html_config.json"
+# The project folder, two levels up from this file: the settings file sits
+# beside step2html.cmd, where it always has, and not inside the package.
+ROOT = Path(__file__).resolve().parents[2]
+CONFIG = ROOT / "step2html_config.json"
 
 # Colours, and the rule that picks them. Matched to Simple 3D so the two tools
 # read the same way side by side.
@@ -110,7 +114,7 @@ class App:
         self._saved_state = "normal"
         self._last_normal_geometry = ""
 
-        root.title(f"step2html {core.__version__}")
+        root.title(f"step2html {__version__}")
         root.minsize(620, 520)
 
         self.step_path = tk.StringVar()

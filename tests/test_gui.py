@@ -21,9 +21,9 @@ from pathlib import Path
 import tkinter as tk
 
 from harness import check, run
-import gui
-import step_to_html as core
 from fixtures import coloured_assembly
+from step2html import convert as core
+from step2html.gui import app as gui
 
 
 def tags_in(app):
@@ -62,8 +62,10 @@ def check_startup_failure():
     text = shown[0][1] if shown else ""
     check(sys.executable in text,
           "and the dialog names the Python that is running")
+    # The launcher sits in the project folder, two levels above the window
+    # module now that the window is a package.
     check("step2html.cmd" in text
-          and (Path(gui.__file__).parent / "step2html.cmd").is_file(),
+          and (Path(gui.__file__).resolve().parents[2] / "step2html.cmd").is_file(),
           "and the launcher it points at is really there")
 
 

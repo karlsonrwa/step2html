@@ -11,9 +11,9 @@ the child.
 Everything here must be picklable, and nothing on the way in may build a
 Tk(). On Windows the child is spawned rather than forked: it re-imports this
 module from scratch, and the parent's main module along with it - so tkinter
-IS imported in the child, through gui.py, and that is harmless. What would
-not be is a window created at module level, which the child would open a
-second, invisible copy of.
+IS imported in the child, through gui/app.py, and that is harmless. What
+would not be is a window created at module level, which the child would open
+a second, invisible copy of.
 
 Message shapes on the channel, which the window understands:
     ("log", text)
@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import traceback
 
-import step_to_html as core
+from step2html import ConvertError
+from step2html import convert as core
 
 
 def run(opts: "core.Options", channel) -> None:
@@ -36,7 +37,7 @@ def run(opts: "core.Options", channel) -> None:
             log=lambda m: channel.put(("log", m)),
             progress=lambda v, t, label: channel.put(("progress", (v, t, label))),
         )
-    except core.ConvertError as exc:
+    except ConvertError as exc:
         # Something the user can act on: a missing file, a STEP with no shapes.
         channel.put(("error", str(exc)))
         return

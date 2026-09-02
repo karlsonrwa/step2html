@@ -17,8 +17,10 @@ import zlib
 from pathlib import Path
 
 from harness import check, run
-import step_to_html as S
 from fixtures import coloured_assembly
+from step2html import __version__, cli, payload
+from step2html.convert import Options, convert
+from step2html.page import TEXT, build_page
 
 
 def main():
@@ -27,8 +29,8 @@ def main():
         out = Path(tmp) / "fixture.html"
         # At a FIXED deflection, so the payload below can be compared with the
         # golden one; the automatic figure is checked in test_repair.
-        S.main([str(step), "-o", str(out), "--max-bytes", "none",
-                "--deflection", "0.04", "--angle", "15"])
+        cli.main([str(step), "-o", str(out), "--max-bytes", "none",
+                  "--deflection", "0.04", "--angle", "15"])
         page = out.read_text(encoding="utf-8")
 
         left = re.findall(r"__[A-Z_]+__", page)
@@ -36,9 +38,9 @@ def main():
         # A title is user text - a --title, or the STEP's own stem - and text
         # substituted into the template must not then be read AS template.
         # Key by key in a loop it was: a title of "__L_ON__" came out as "On".
-        odd = S.build_page("__L_ON__ rev __L_DARK__",
-                           {"parts": 1, "faces": 1, "triangles": 1},
-                           "AAAA", 1, 1, meta={"source": "x.step"})
+        odd = build_page("__L_ON__ rev __L_DARK__",
+                         {"parts": 1, "faces": 1, "triangles": 1},
+                         "AAAA", 1, 1, meta={"source": "x.step"})
         shown = odd.split("<b>")[1].split("</b>")[0]
         check(shown == "__L_ON__ rev __L_DARK__",
               "substituted text is not scanned again", shown)
@@ -70,9 +72,9 @@ def main():
         # The order of the menu IS the order of the VIEWS array, and a
         # mismatch would silently show the wrong view under the right name.
         order = re.findall(r'data-view="(\d)" role="menuitem">([^<]+)<', page)
-        want = [S.TEXT[k] for k in ("view_top", "view_bottom", "view_front",
-                                    "view_back", "view_left", "view_right",
-                                    "view_iso_top", "view_iso_bottom")]
+        want = [TEXT[k] for k in ("view_top", "view_bottom", "view_front",
+                                  "view_back", "view_left", "view_right",
+                                  "view_iso_top", "view_iso_bottom")]
         check([n for _i, n in order] == want and
               [i for i, _n in order] == list("01234567"),
               "the menu is in the order the views are defined in",
@@ -135,22 +137,22 @@ def main():
 
         # The number the pages carry, asked of the tool itself.
         try:
-            S.main(["--version"])
+            cli.main(["--version"])
             said = "nothing"
         except SystemExit as exc:
             said = str(exc.code)
         check(said == "0", "--version answers and exits cleanly", said)
 
         # ---- the file says what made it ------------------------------- #
-        check(f'name="generator" content="step2html {S.__version__}'
+        check(f'name="generator" content="step2html {__version__}'
               in page, "the head carries a generator tag with the version")
-        check(f"step2html {S.__version__}" in page.split("<body")[1],
+        check(f"step2html {__version__}" in page.split("<body")[1],
               "and the version is visible at the foot of the help")
-        for row in (S.TEXT["about_source"], S.TEXT["about_mesh"],
-                    S.TEXT["about_made"]):
+        for row in (TEXT["about_source"], TEXT["about_mesh"],
+                    TEXT["about_made"]):
             check(f"<dt>{row}</dt>" in page, f"the help states the {row.lower()}")
         check("fixture.step" in page, "the source STEP is named")
-        check(f"<dt>{S.TEXT['about_size']}</dt>" in page and " mm</dd>" in page,
+        check(f"<dt>{TEXT['about_size']}</dt>" in page and " mm</dd>" in page,
               "and how big it is, in mm")
 
         # ---- the tools ------------------------------------------------ #
@@ -164,9 +166,17 @@ def main():
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()
         crc = int(re.search(r"const CRC=(\d+)", page).group(1))
         raw = int(re.search(r"RAW=(\d+)", page).group(1))
-        body = zlib.decompress(base64.b64decode(b64), -15)
+        body = payload.decode(b64)
         magic, ver, nv, ni, nev, nei, nfa, ncr = struct.unpack(
             "<4sIIIIIII", body[:32])
+        # Counted by hand above, on purpose: the Python reader below must
+        # agree with a reading that does not go through it.
+        mesh = payload.unpack(body)
+        check(mesh["counts"] == (nv, ni, nev, nei, nfa, ncr)
+              and len(mesh["pos"]) == nv * 3 and len(mesh["idx"]) == ni
+              and len(mesh["face_starts"]) == nfa
+              and len(mesh["circles"]) == ncr,
+              "payload.unpack reads back every array the header names")
         check(magic == b"S3DH", "the payload carries its magic", str(magic))
         # The version and the layout are one thing, and this pins them
         # together: a header edited without the reader following it wrote a
@@ -250,9 +260,9 @@ def main():
         # names: written with "\n", not with whatever the platform likes,
         # which on Windows added a byte per template line after the weighing.
         lines = []
-        tiny = S.convert(S.Options(step=str(step),
-                                   out=str(Path(tmp) / "tiny.html"),
-                                   max_bytes="1000"), log=lines.append)
+        tiny = convert(Options(step=str(step),
+                               out=str(Path(tmp) / "tiny.html"),
+                               max_bytes="1000"), log=lines.append)
         built = [int(m.group(1).replace(",", ""))
                  for m in (re.search(r"-> ([\d,]+) bytes", l) for l in lines)
                  if m]

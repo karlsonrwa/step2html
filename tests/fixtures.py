@@ -25,7 +25,7 @@ from OCP.TopoDS import TopoDS_Compound
 from OCP.XCAFApp import XCAFApp_Application
 from OCP.XCAFDoc import XCAFDoc_ColorType, XCAFDoc_DocumentTool
 
-from step_to_html import _faces
+from step2html.meshing import faces
 
 # What the fixture is painted with, as the sRGB bytes the reader must recover.
 BODY = (0x1A, 0x59, 0x24)      # the box
@@ -68,7 +68,7 @@ def coloured_assembly(path: Path) -> Path:
     color_tool.SetColor(box_label, _q(BODY), XCAFDoc_ColorType.XCAFDoc_ColorSurf)
     # One face painted over the part colour - the case that was silently lost
     # for a whole round, because a colour is found by the identity of a face.
-    color_tool.SetColor(_faces(box)[0], _q(RIM), XCAFDoc_ColorType.XCAFDoc_ColorSurf)
+    color_tool.SetColor(faces(box)[0], _q(RIM), XCAFDoc_ColorType.XCAFDoc_ColorSurf)
 
     pin = BRepPrimAPI_MakeCylinder(1.5, 6.0).Shape()
     pin_label = shape_tool.AddShape(pin, False)

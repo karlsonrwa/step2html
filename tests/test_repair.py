@@ -19,36 +19,36 @@ import tempfile
 from pathlib import Path
 
 from harness import ANGULAR, area, check, run
-import step_to_html as S
 from fixtures import coloured_assembly
+from step2html import ConvertError
+from step2html.convert import Options, convert
+from step2html.meshing import (auto_deflection, faces, mesh_parts,
+                               patch_face, repair_parts)
+from step2html.tessellate import tessellate
+from step2html.xcaf import collect_parts, colour_lookup, read_step
 
 from OCP.BRep import BRep_Tool
-from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
-from OCP.BRepTools import BRepTools
 from OCP.TopLoc import TopLoc_Location
 
 
 def build(step, repair):
-    doc = S.read_step(step)
-    parts, color_tool = S.collect_parts(doc)
-    linear = S.auto_deflection(parts)
+    doc = read_step(step)
+    parts, color_tool = collect_parts(doc)
+    colour_of = colour_lookup(color_tool)
+    linear = auto_deflection(parts)
     if repair:
-        parts, _r, left = S.repair_parts(parts, color_tool, linear, ANGULAR,
-                                         lambda _m: None)
+        parts, _r, left = repair_parts(parts, colour_of, linear, ANGULAR,
+                                       lambda _m: None)
     else:
-        parts = [(n, c, sh, l, []) for n, c, sh, l in parts]
-        for _n, _c, sh, _l, _p in parts:
-            BRepTools.Clean_s(sh)
-            BRepMesh_IncrementalMesh(sh, linear, False, ANGULAR, True)
-        left = []
+        parts, _r, left = mesh_parts(parts, linear, ANGULAR)
     signature = []
     for _n, _c, sh, _l, _p in parts:
-        for face in S._faces(sh):
+        for face in faces(sh):
             tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
             signature.append(tri.NbTriangles() if tri is not None else 0)
-    pos, nrm, col, idx, epos, eidx, stats = S.tessellate(
-        parts, color_tool, linear=linear, angular=ANGULAR)
+    pos, nrm, col, idx, epos, eidx, stats = tessellate(
+        parts, colour_of, linear=linear, angular=ANGULAR)
     return signature, stats, left, len(eidx) // 2, len(idx) // 3
 
 
@@ -81,12 +81,12 @@ def main():
         # meshed happily. So the patch is exercised on a healthy closed face
         # instead, which pins what a patch must be whatever asked for it.
         cyl = BRepPrimAPI_MakeCylinder(1.5, 6.0).Shape()
-        lateral = max(S._faces(cyl), key=area)       # the closed periodic one
-        patch = S._patch_face(lateral, 0.04, ANGULAR)
+        lateral = max(faces(cyl), key=area)          # the closed periodic one
+        patch = patch_face(lateral, 0.04, ANGULAR)
         check(patch is not None, "a patch comes back at all")
         if patch is not None:
             tris = 0
-            for f in S._faces(patch):
+            for f in faces(patch):
                 t = BRep_Tool.Triangulation_s(f, TopLoc_Location())
                 tris += t.NbTriangles() if t is not None else 0
             check(tris > 0, "and it is meshed", f"{tris} triangles")
@@ -101,19 +101,20 @@ def main():
             # the speed fix: a plain copy at the model's own deflection is the
             # attempt the mesher has just refused, and on a real connector it
             # costs 0.85 s to be refused again.
-            check(len(S._faces(patch)) == 2,
+            check(len(faces(patch)) == 2,
                   "and the split is what was tried first at this deflection",
-                  f"{len(S._faces(patch))} face(s)")
+                  f"{len(faces(patch))} face(s)")
 
         # tessellate reads the triangulation; it does not make one. That is
         # what took the second BRepMesh out of it - 1.2 s a build on a real
         # board - and it is a contract, so it is pinned: unmeshed parts must
         # come back empty rather than quietly meshing themselves again.
-        doc0 = S.read_step(step)
-        raw_parts, ct0 = S.collect_parts(doc0)
+        doc0 = read_step(step)
+        raw_parts, ct0 = collect_parts(doc0)
         unmeshed = [(n, c, sh, l, []) for n, c, sh, l in raw_parts]
-        pos0, _n0, _c0, idx0, _e0, _ei0, _st0 = S.tessellate(
-            unmeshed, ct0, linear=S.auto_deflection(raw_parts), angular=ANGULAR)
+        pos0, _n0, _c0, idx0, _e0, _ei0, _st0 = tessellate(
+            unmeshed, colour_lookup(ct0), linear=auto_deflection(raw_parts),
+            angular=ANGULAR)
         check(not pos0 and not idx0,
               "tessellate reads a mesh, it does not make one",
               f"{len(pos0) // 3} vertices from unmeshed parts")
@@ -121,9 +122,9 @@ def main():
         # The auto deflection has to be a number and has to scale with the
         # model, since a fixed millimetre is the wrong unit for both a pin and
         # a panel.
-        doc = S.read_step(step)
-        parts, _ct = S.collect_parts(doc)
-        deflection = S.auto_deflection(parts)
+        doc = read_step(step)
+        parts, _ct = collect_parts(doc)
+        deflection = auto_deflection(parts)
         check(0.004 <= deflection <= 0.25,
               "the automatic deflection is inside its clamp",
               f"{deflection:.4g} mm")
@@ -135,9 +136,9 @@ def main():
         junk = Path(tmp) / "not-a-step.step"
         junk.write_text("this is not a STEP file at all\n", encoding="utf-8")
         try:
-            S.convert(S.Options(step=str(junk)))
+            convert(Options(step=str(junk)))
             raised = "nothing"
-        except S.ConvertError as exc:
+        except ConvertError as exc:
             raised = "ConvertError"
             detail = str(exc)
         except BaseException as exc:            # noqa: BLE001 - that is the point

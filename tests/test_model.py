@@ -12,9 +12,12 @@ from collections import Counter
 from pathlib import Path
 
 from harness import ANGULAR, check, run
-import step_to_html as S
 from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_B, RIM,
                       coloured_assembly)
+from step2html.meshing import auto_deflection, repair_parts
+from step2html.tessellate import tessellate
+from step2html.xcaf import (DEFAULT_RGB, collect_parts, colour_lookup,
+                            read_step)
 
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
@@ -25,14 +28,15 @@ from OCP.TopoDS import TopoDS_Compound
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
-        doc = S.read_step(step)
-        parts, color_tool = S.collect_parts(doc)
-        linear = S.auto_deflection(parts)
+        doc = read_step(step)
+        parts, color_tool = collect_parts(doc)
+        colour_of = colour_lookup(color_tool)
+        linear = auto_deflection(parts)
         angular = ANGULAR
-        parts, _rescued, left = S.repair_parts(
-            parts, color_tool, linear, angular, lambda _m: None)
-        pos, nrm, col, idx, epos, eidx, stats = S.tessellate(
-            parts, color_tool, linear=linear, angular=angular)
+        parts, _rescued, left = repair_parts(
+            parts, colour_of, linear, angular, lambda _m: None)
+        pos, nrm, col, idx, epos, eidx, stats = tessellate(
+            parts, colour_of, linear=linear, angular=angular)
 
         seen = Counter(tuple(col[i:i + 3]) for i in range(0, len(col), 3))
 
@@ -46,7 +50,7 @@ def main():
         check(PLATE_A in seen and PLATE_B in seen,
               "two solids in one part keep a colour each",
               f"A={PLATE_A in seen} B={PLATE_B in seen}")
-        check(S.DEFAULT_RGB not in seen,
+        check(DEFAULT_RGB not in seen,
               "nothing fell back to the default grey")
 
         # ---- placement --------------------------------------------------- #

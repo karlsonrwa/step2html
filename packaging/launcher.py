@@ -27,7 +27,7 @@ def selftest(step):
     import time
     import tkinter as tk
     from pathlib import Path
-    import gui
+    from step2html.gui import app as gui
 
     out = Path(step).with_suffix(".selftest.html")
     root = tk.Tk()
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
         sys.exit(selftest(sys.argv[2]))
     if len(sys.argv) > 1:
-        import step_to_html
-        sys.exit(step_to_html.main())
-    import gui
-    sys.exit(gui.main())
+        from step2html.cli import main
+        sys.exit(main())
+    from step2html.gui.app import main
+    sys.exit(main())
