@@ -24,6 +24,7 @@ from harness import check, run
 from fixtures import coloured_assembly
 from step2html import convert as core
 from step2html.gui import app as gui
+from step2html.progress import PHASES
 
 
 def tags_in(app):
@@ -171,8 +172,8 @@ def main():
         check(app.proc is None, "the child finished and was reaped")
         check(out.is_file(), "the HTML landed where the window was told",
               f"{out.stat().st_size:,} bytes" if out.is_file() else "missing")
-        seen = {p for p in core.PHASES if any(p in l for l in labels)}
-        check(seen == set(core.PHASES), "every phase was announced",
+        seen = {p for p in PHASES if any(p in l for l in labels)}
+        check(seen == set(PHASES), "every phase was announced",
               ", ".join(sorted(seen)) or "none")
         check(app.progress["value"] == app.progress["maximum"],
               "the bar ends full",

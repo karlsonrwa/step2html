@@ -362,7 +362,7 @@ none. The folder build removes the wait instead of decorating it.
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | four suites, `python tests/run_all.py`, fifteen to twenty seconds |
+| `tests/` | six suites, `python tests/run_all.py`, fifteen to twenty seconds; two of them - the budget search and the progress bar - need no OCCT and run in a millisecond |
 | `docs/` | the architecture as it stands, the review log by date, and the plan for taking the monoliths apart |
 
 The CLI and the window share one code path on purpose. A second implementation
@@ -1133,7 +1133,7 @@ dist\step2html.exe --selftest some.step
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
-| `tests/` | четыре набора, `python tests/run_all.py`, пятнадцать-двадцать секунд |
+| `tests/` | шесть наборов, `python tests/run_all.py`, пятнадцать-двадцать секунд; двум из них — поиску по бюджету и полосе прогресса — OCCT не нужен, они проходят за миллисекунду |
 | `docs/` | архитектура как есть, ревью по датам и план дробления монолитов |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация
