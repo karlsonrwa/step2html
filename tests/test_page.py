@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import json
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import zlib
@@ -101,6 +103,23 @@ def main():
                 ragged.append((n, line.strip()[:60]))
         check(not ragged, "no unbalanced quote in the page's script",
               "; ".join(f"line {n}: {t}" for n, t in ragged[:3]))
+        # And, where node is on the machine, a real parser over the SAME
+        # script - the one with the values substituted in, not the template.
+        # The quote count above catches the one fault that cost an afternoon;
+        # this catches every other way a script can fail to parse, with a
+        # line number. Skipped, and said so, where there is no node.
+        node = shutil.which("node")
+        if node:
+            script_file = Path(tmp) / "viewer.js"
+            script_file.write_text(script, encoding="utf-8")
+            done = subprocess.run([node, "--check", str(script_file)],
+                                  capture_output=True, text=True)
+            said = done.stderr.strip().splitlines()
+            check(done.returncode == 0, "node --check accepts the page's script",
+                  said[-1] if said else "")
+        else:
+            print("  note  node is not on PATH; the script was not parsed by "
+                  "a real parser")
         # Every element the script reaches for must exist in the markup.
         # getElementById returns null for one that does not, and the line
         # after it dies - which is how fail(), of all functions, ended up

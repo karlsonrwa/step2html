@@ -356,7 +356,7 @@ none. The folder build removes the wait instead of decorating it.
 
 | | |
 |---|---|
-| `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
+| `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them from the template in `viewer/` - markup, stylesheet and script as three files; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
 | `step2html/gui/` | the window, `python -m step2html.gui`. Builds the same `Options` and hands it to the worker |
 | `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
@@ -1127,7 +1127,7 @@ dist\step2html.exe --selftest some.step
 
 | | |
 |---|---|
-| `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
+| `step2html/` | конвейер, по модулю на задачу. `convert.py` — единственная точка входа, `convert(Options, log, progress)`; `xcaf.py` читает STEP и цвета, `meshing.py` мешит и чинит, `tessellate.py` делает треугольники, рёбра и окружности, `payload.py` их упаковывает, `page.py` пишет вокруг них страницу по шаблону из `viewer/` — разметка, стили и скрипт тремя файлами; `cli.py` — тонкая обёртка командной строки, `python -m step2html` ведёт к ней из папки проекта |
 | `step2html/gui/` | окно, `python -m step2html.gui`. Собирает тот же самый `Options` и отдаёт его воркеру |
 | `step2html/worker.py` | `convert` в дочернем процессе. Ничто на пути к нему не должно создавать `Tk()`: на Windows дочерний процесс порождается заново и импортирует главный модуль с нуля |
 | `step2html.cmd` | запускает окно выбранным Python и держит консоль открытой, если он упал |

@@ -37,3 +37,8 @@ version = { attr = "step2html.__version__" }
 # and worker: names that general, installed at the top level, are a
 # collision waiting for a machine with one more package on it.
 packages = ["step2html", "step2html.gui"]
+
+[tool.setuptools.package-data]
+# The page template: markup, stylesheet and script, read at import by
+# page.py. Data, not code, and it has to travel with the package.
+step2html = ["viewer/*"]

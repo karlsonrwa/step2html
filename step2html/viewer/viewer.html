@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="__M_GENERATOR__">
+<title>__TITLE__</title>
+<style>
+__CSS__</style></head><body>
+<div id="bar">
+<div class="grp"><b>__TITLE__</b><span class="sub">__STATS__</span></div>
+<div class="grp"><span class="cap">__L_PROJECTION__</span>
+<label><input type="radio" name="proj" value="ortho" checked>__L_ORTHOGRAPHIC__</label>
+<label><input type="radio" name="proj" value="persp">__L_PERSPECTIVE__</label></div>
+<div class="grp"><span class="cap">__L_EDGES__</span>
+<label><input type="radio" name="edge" value="on" checked>__L_ON__</label>
+<label><input type="radio" name="edge" value="off">__L_OFF__</label></div>
+<div class="grp"><span class="cap">__L_TOOLS__</span>
+<label><input type="checkbox" id="measure">__L_MEASURE__</label>
+<button id="png" type="button" class="link">__L_SAVE_PNG__</button></div>
+<div class="grp"><span class="cap">__L_THEME__</span>
+<label><input type="radio" name="theme" value="system" checked>__L_SYSTEM__</label>
+<label><input type="radio" name="theme" value="light">__L_LIGHT__</label>
+<label><input type="radio" name="theme" value="dark">__L_DARK__</label></div>
+<button id="help" type="button" title="__L_HELP__" aria-label="__L_HELP__">?</button>
+</div>
+<div id="view"><canvas id="cv"></canvas>
+<div id="pivot"><i></i></div>
+<svg id="mline">
+<line class="ax x"/><line class="ax y"/><line class="ax z"/>
+<line class="lead"/><line class="main"/>
+<polyline class="rim"/><polyline class="rim"/><polyline class="rim"/>
+<circle r="3.5"/><circle r="3.5"/><circle class="snap" r="6"/>
+<text class="ax x"/><text class="ax y"/><text class="ax z"/></svg>
+<svg id="axes" viewBox="0 0 88 88">
+<line class="x"/><line class="y"/><line class="z"/>
+<text class="x">X</text><text class="y">Y</text><text class="z">Z</text></svg>
+<div id="mlabel"></div></div>
+<dialog id="helpbox">
+<h2>__L_HELP_TITLE__</h2>
+<dl><dt>__L_K_ROTATE__</dt><dd>__L_V_ROTATE__</dd>
+<dt>__L_K_ZOOM__</dt><dd>__L_V_ZOOM__</dd>
+<dt>__L_K_PAN__</dt><dd>__L_V_PAN__</dd>
+<dt>__L_K_CLICK__</dt><dd>__L_V_CLICK__</dd>
+<dt>__L_K_RESET__</dt><dd>__L_V_RESET__</dd>
+<dt>__L_K_KEYS__</dt><dd>__L_V_KEYS__</dd></dl>
+<hr>
+<dl class="about">
+<dt>__L_ABOUT_SOURCE__</dt><dd>__M_SOURCE__</dd>
+<dt>__L_ABOUT_SIZE__</dt><dd>__M_SIZE__</dd>
+<dt>__L_ABOUT_MESH__</dt><dd>__M_MESH__</dd>
+<dt>__L_ABOUT_MADE__</dt><dd>__M_MADE__</dd></dl>
+<p class="made">__M_VERSION__</p>
+<button class="close" type="button">__L_CLOSE__</button>
+</dialog>
+<div id="scrim"></div>
+<button id="cube" type="button" title="__L_VIEWS__" aria-label="__L_VIEWS__">
+<svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" fill="none"
+     stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+<path d="M12 2.5 L20.5 7.2 L12 11.9 L3.5 7.2 Z" fill="currentColor"
+      fill-opacity=".22"/>
+<path d="M3.5 7.2 L12 11.9 L12 21.5 L3.5 16.8 Z"/>
+<path d="M20.5 7.2 L12 11.9 L12 21.5 L20.5 16.8 Z"/></svg></button>
+<div id="views" role="menu">
+<button type="button" data-view="0" role="menuitem">__L_VIEW_TOP__</button>
+<button type="button" data-view="1" role="menuitem">__L_VIEW_BOTTOM__</button>
+<button type="button" data-view="2" role="menuitem">__L_VIEW_FRONT__</button>
+<button type="button" data-view="3" role="menuitem">__L_VIEW_BACK__</button>
+<button type="button" data-view="4" role="menuitem">__L_VIEW_LEFT__</button>
+<button type="button" data-view="5" role="menuitem">__L_VIEW_RIGHT__</button>
+<button type="button" data-view="6" role="menuitem">__L_VIEW_ISO_TOP__</button>
+<button type="button" data-view="7" role="menuitem">__L_VIEW_ISO_BOTTOM__</button>
+</div>
+<div id="err"><p id="errtext"></p></div>
+<script type="text/plain" id="geo">__DATA__</script>
+<script>
+__JS__</script></body></html>

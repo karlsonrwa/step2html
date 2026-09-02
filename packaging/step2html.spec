@@ -36,7 +36,11 @@ a = Analysis(
     [os.path.join(HERE, "launcher.py")],
     pathex=[REPO],
     binaries=[],
-    datas=[],
+    # The page template is three files under step2html/viewer, read at import
+    # through importlib.resources; a frozen build has to carry them in the
+    # same place, or page.py dies on its first line.
+    datas=[(os.path.join(REPO, "step2html", "viewer"),
+            os.path.join("step2html", "viewer"))],
     # The window and the worker are reached through imports the analysis can
     # see, but named anyway: a child process starts from THIS executable and
     # imports step2html.worker by name, with nothing static pointing at it.

@@ -1,0 +1,189 @@
+  /* color-scheme drives the native radio buttons and the scrollbars, so they
+     follow the theme without being restyled. */
+  :root{color-scheme:dark;
+        --bg:#14171c;--fg:#c8ccd4;--strong:#f0f2f5;--panel:#1a1e25;
+        --line:#2c313a;--hover:rgba(255,255,255,.08);
+        --press:rgba(255,255,255,.16);--accent:#4d9fff}
+  :root.light{color-scheme:light;
+        --bg:#eef1f5;--fg:#3a4350;--strong:#11161d;--panel:#fff;
+        --line:#d7dde5;--hover:rgba(0,0,0,.06);
+        --press:rgba(0,0,0,.12);--accent:#1a73e8}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:13px/1.5 "Segoe UI",system-ui,sans-serif;overflow:hidden}
+  /* Height off the VIEWPORT, not off a height:100% chain through <html>:
+     the chain collapses to zero wherever an ancestor has no height of its
+     own, and on a phone 100vh is taller than what you can actually see,
+     because it counts the space under the collapsing address bar. dvh is
+     the visible height, and 100vh above it is the fallback for old
+     browsers that do not know dvh. */
+  body{height:100vh;height:100dvh;display:flex;flex-direction:column}
+  /* The bar is IN the flow, not over the model: a narrow window makes it
+     wrap onto more lines and the canvas gives up the height, instead of the
+     controls sitting on top of the board. The right padding is the space the
+     help button is absolutely positioned into, so that it stays in the top
+     right corner however many lines the rest wraps onto. */
+  #bar{position:relative;flex:0 0 auto;display:flex;flex-wrap:wrap;
+    align-items:center;gap:6px 22px;padding:8px 48px 8px 14px;
+    background:var(--panel);border-bottom:1px solid var(--line)}
+  #bar .grp{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+  #bar b{color:var(--strong);font-weight:600}
+  #bar .sub{opacity:.6;font-size:12px}
+  #bar .cap{opacity:.5;font-size:11px;letter-spacing:.07em;
+    text-transform:uppercase}
+  #bar label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+    padding:3px 8px;border-radius:4px;white-space:nowrap;font-size:12px}
+  #bar label:hover{background:var(--hover)}
+  #bar input[type=radio]{accent-color:var(--accent);margin:0;cursor:pointer}
+  #bar label:has(input:disabled){opacity:.4;cursor:default}
+  #bar label:has(input:disabled):hover{background:none}
+  /* Flat, in the material sense: no fill, no border, the surface only
+     answers to hover and press. */
+  /* Fixed to the VIEWPORT, so it is in the top right corner of the screen
+     whichever side the bar is on. In the side layout that puts it over the
+     model, hence the panel-coloured chip - a bare glyph is unreadable
+     against arbitrary geometry. */
+  /* z-index, or it is invisible in the side layout. #bar comes before #view
+     in the markup and neither carries a z-index, so the canvas paints over
+     anything of the bar's that reaches across it - and a fixed button in the
+     screen's corner does exactly that. getBoundingClientRect() reports the
+     button in its place either way, so the geometry looks right while
+     nothing is on screen: elementFromPoint is what tells the truth here. */
+  #help{position:fixed;top:6px;right:8px;z-index:5;width:32px;height:32px;
+    background:var(--panel);
+    display:grid;place-items:center;font:inherit;font-size:15px;font-weight:700;
+    color:var(--fg);border:0;border-radius:4px;cursor:pointer}
+  #help:hover{background:var(--hover)}
+  #help:active{background:var(--press)}
+  #help:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  /* The same bar, stood on its end. Which of the two is used is decided by
+     measurement, not by a media query - see chooseLayout(). */
+  body.side{flex-direction:row}
+  /* The column must be only as wide as its widest label. Stretching it, or
+     letting it wrap into a second column, makes the side layout wide enough
+     to lose every measurement it is put up against. */
+  body.side #bar{flex-direction:column;flex-wrap:nowrap;align-items:flex-start;
+    gap:12px;padding:10px 14px 12px;overflow-y:auto;overflow-x:hidden;
+    max-width:40%;border-bottom:0;border-right:1px solid var(--line)}
+  body.side #bar .grp{flex-direction:column;flex-wrap:nowrap;
+    align-items:flex-start;gap:1px}
+  /* The column is as wide as the widest CONTROL and no wider. width:0 keeps
+     the title and the statistics out of the intrinsic width the column is
+     sized from, min-width:100% then gives them the whole of it to wrap
+     inside. Without this the one-line statistics set the width and the
+     column comes out half as wide again. */
+  body.side #bar > .grp:first-child{width:0;min-width:100%;
+    overflow-wrap:anywhere}
+  #bar button.link{font:inherit;font-size:12px;color:var(--accent);
+    background:none;border:0;border-radius:4px;padding:3px 8px;cursor:pointer}
+  #bar button.link:hover{background:var(--hover)}
+  #bar input[type=checkbox]{accent-color:var(--accent);margin:0 5px 0 0;
+    cursor:pointer}
+  #view{flex:1 1 auto;min-height:0;min-width:0;position:relative}
+  #view.measuring{cursor:crosshair}
+  /* The measurement is drawn as an OVERLAY, not as geometry: two projected
+     points and a line between them need no buffer, no draw call and no depth
+     test, and a measurement should be readable through the model anyway. */
+  #mline{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;
+    display:none}
+  #mline.on{display:block}
+  #mline line.main{stroke:var(--accent);stroke-width:1.8;stroke-dasharray:5 4}
+  #mline circle{fill:var(--accent)}
+  /* The rim the measurement has caught, and the centre it snapped to: a
+     hollow ring on the circle itself, so it is obvious WHICH hole the number
+     belongs to before the click rather than after it. */
+  #mline polyline.rim{fill:none;stroke:var(--accent);stroke-width:1.6;
+    opacity:.9}
+  #mline circle.snap{fill:none;stroke:var(--accent);stroke-width:1.5}
+  /* The thread from the reading back to what it reads. Thin and plain, so it
+     is not mistaken for one of the measured legs. */
+  #mline line.lead{stroke:var(--accent);stroke-width:1;opacity:.55}
+  /* One colour per axis, and the same three everywhere: the triad in the
+     corner and the stepped path of a measurement say the same thing.
+     Two sets, because one cannot be right on both backgrounds: on the dark
+     theme they have to be light to carry, on the light one they have to be
+     saturated instead, and a single middling set reads as muted on both. */
+  :root{--ax-x:#ff6152;--ax-y:#3ee083;--ax-z:#62aaff}
+  :root.light{--ax-x:#e8291a;--ax-y:#0f9d4c;--ax-z:#1668e6}
+  .x{stroke:var(--ax-x);fill:var(--ax-x)}
+  .y{stroke:var(--ax-y);fill:var(--ax-y)}
+  .z{stroke:var(--ax-z);fill:var(--ax-z)}
+  #mline line.ax{stroke-width:1.5;stroke-dasharray:3 3}
+  #mline text.ax{font-size:11px;stroke:none;paint-order:stroke;
+    stroke-width:3px;stroke:var(--bg)}
+  #axes{position:absolute;left:12px;bottom:12px;width:88px;height:88px;
+    pointer-events:none}
+  #axes line{stroke-width:2.2;stroke-linecap:round}
+  #axes text{font-size:11px;font-weight:700;stroke:none;text-anchor:middle;
+    dominant-baseline:middle}
+  /* Draggable, so it takes pointer events - which is why it is a sibling of
+     the canvas and not part of #mline, which takes none. It parks itself in
+     the corner furthest from the measurement; a drag pins it where it is
+     dropped until the measurement is cleared. */
+  #mlabel{position:absolute;transform:translate(-50%,-50%);cursor:move;
+    display:none;padding:4px 8px;border-radius:4px;font-size:12px;
+    line-height:1.35;text-align:center;white-space:pre;color:var(--strong);
+    background:var(--panel);border:1px solid var(--line);touch-action:none}
+  #mlabel.on{display:block}
+  /* The centre of rotation, drawn as an overlay rather than as geometry: it
+     is projected to a screen position once per frame, which is a great deal
+     less than a second draw call, and CSS animates it for free. */
+  #pivot{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;
+    pointer-events:none;opacity:0;transition:opacity .45s ease}
+  #pivot.on{opacity:.85;animation:pivotpop .3s ease-out}
+  #pivot::before,#pivot::after{content:"";position:absolute;
+    background:var(--accent)}
+  #pivot::before{left:50%;top:0;width:1px;height:100%;margin-left:-.5px}
+  #pivot::after{top:50%;left:0;height:1px;width:100%;margin-top:-.5px}
+  #pivot i{position:absolute;inset:6px;border:1.5px solid var(--accent);
+    border-radius:50%}
+  @keyframes pivotpop{from{transform:scale(2.1);opacity:0}
+                      to{transform:scale(1);opacity:.85}}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  dialog{color:var(--fg);background:var(--panel);border:0;border-radius:8px;
+    padding:20px 24px;max-width:32em;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+  dialog::backdrop{background:rgba(0,0,0,.5)}
+  dialog h2{margin:0 0 14px;font-size:14px;color:var(--strong);
+    letter-spacing:.04em;text-transform:uppercase}
+  dialog dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 18px}
+  dialog dt{color:var(--strong)}
+  dialog dd{margin:0;opacity:.7}
+  /* The view cube, and the menu it raises. Both are fixed to the viewport,
+     like the help button, and both need a stacking order for the same reason
+     it does: the canvas comes later in the markup and would paint over them. */
+  #cube{position:fixed;right:10px;bottom:10px;z-index:5;width:38px;height:38px;
+    display:grid;place-items:center;color:var(--fg);background:var(--panel);
+    border:0;border-radius:5px;cursor:pointer;padding:0}
+  #cube:hover{background:var(--hover);color:var(--strong)}
+  #cube:active{background:var(--press)}
+  #cube:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  /* Opens UPWARD: the button sits at the bottom of the window, and a menu
+     dropping from it would go off the screen. */
+  /* As wide as its widest item and no wider - min-width was a guess, and a
+     guess that was half again too big. */
+  #views{position:fixed;right:10px;bottom:54px;z-index:6;display:none;
+    flex-direction:column;padding:4px;border-radius:6px;
+    background:var(--panel);border:1px solid var(--line);
+    box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  #views.open{display:flex}
+  #views button{font:inherit;font-size:12px;text-align:left;color:var(--fg);
+    background:none;border:0;border-radius:4px;padding:5px 9px;cursor:pointer;
+    white-space:nowrap}
+  #views button:hover{background:var(--hover);color:var(--strong)}
+  /* Swallows the click that closes the menu, so it cannot also reach the
+     model underneath and turn it or move the centre of rotation. */
+  #scrim{position:fixed;inset:0;z-index:4;display:none}
+  #scrim.open{display:block}
+  dialog hr{border:0;border-top:1px solid var(--line);margin:16px 0 12px}
+  dialog .about{font-size:12px;opacity:.75}
+  dialog .about dt{color:var(--fg);font-weight:400}
+  dialog .made{margin:12px 0 0;font-size:11px;opacity:.5;letter-spacing:.04em}
+  dialog .close{display:block;margin:18px 0 0 auto;font:inherit;font-size:12px;
+    font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--accent);background:none;border:0;border-radius:4px;
+    padding:7px 14px;cursor:pointer}
+  dialog .close:hover{background:var(--hover)}
+  /* Above the button: when this is up, nothing else should be reachable. */
+  #err{position:fixed;inset:0;z-index:10;display:none;place-items:center;
+    text-align:center;background:var(--bg);padding:40px}
+  #err p{max-width:32em;color:#c0392b;font-size:15px}
+  :root:not(.light) #err p{color:#ffb4b4}

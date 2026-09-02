@@ -23,3 +23,6 @@ step2html_config.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# The viewer template is HTML too, and it is source, not output
+!step2html/viewer/*.html
