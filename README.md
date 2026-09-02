@@ -361,6 +361,7 @@ none. The folder build removes the wait instead of decorating it.
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
 | `tests/` | four suites, `python tests/run_all.py`, about twelve seconds |
+| `docs/` | the architecture as it stands, the review log by date, and the plan for taking the monoliths apart |
 
 The CLI and the window share one code path on purpose. A second implementation
 of the pipeline behind a GUI is how the two drift apart, and
@@ -582,6 +583,55 @@ on a deliberately broken one.
 the two-pointer case there is no way to zoom on one at all.
 
 ## Reviewed
+
+### 2 Sep 2026, at 0.9.6
+
+A fourth pass, over everything, with a different question this time: not only
+what is wrong, but what here is a monolith and what could be carried into
+another project as it stands. The full list with reproductions, the structural
+and functional diagrams, and the plan for taking the monoliths apart are in
+`docs/` — [review-2026-09-02.md](docs/review-2026-09-02.md),
+[architecture.md](docs/architecture.md),
+[refactoring-plan.md](docs/refactoring-plan.md). Nothing in the code was
+changed by this pass; the fixes are the first phase of the plan.
+
+* **When nothing fits the budget, the FIRST build is kept, not the smallest.**
+  The comment says smallest and the log says "keeping N bytes" — with N of
+  the build at q = 1.0, which `page` and `rep` still hold because the search
+  loop never reassigns them. Reproduced on the fixture with a 1000-byte
+  budget: 73,873 and 71,842 bytes built, 73,873 kept.
+* **An old Chrome is told the file is damaged.** The page tests for
+  `DecompressionStream` and promises Chrome/Edge 80+, but `deflate-raw`
+  arrived in Chrome 103; on 80–102 the constructor throws inside the same
+  `try` as the unpacking, and the message shown is the wrong one. The floor
+  is 103+, and `:has()` in the stylesheet is 105+, degrading gracefully.
+* **The size weighed is not the size written.** The budget is checked
+  against the page as bytes of LF text, but `write_text` without `newline=`
+  lets Windows turn every line ending into CR LF: the file on disk is one
+  byte per template line larger than what was weighed - 1,382 on the
+  fixture, 73,873 in the log against 75,255 on disk - so a budget of exactly
+  the STEP can be missed by that much, and `Report.size` counts a different
+  thing from what the search chose. Found while writing the test for the
+  first item.
+* **`gui` and `worker` install as top-level modules** of those names — a
+  collision waiting for a machine with one more package on it. Becomes a
+  package, which is the first step of the plan.
+* **A patch carries its seam as an edge line** — the very artefact
+  `test_repair.py` guards the whole solid against, accepted on the one face.
+  Not wrong; undocumented.
+* Smaller: `_faces` does not dedupe a face shared by two solids;
+  `<Configure>` on the root fires for every child widget; `pack` slices and
+  unpacks more than it needs; the quote check in `test_page.py` splits on
+  `//` blind; `os` and `TopExp` are unused; a docstring still names
+  `simple3d_config.json`; `const on` is shadowed in the key handler;
+  `worker.py` states an invariant the spawn does not keep (tkinter *is*
+  imported in the child, through `__mp_main__` — what must not happen is
+  `Tk()` at module level); this file says 3.12 and twelve seconds where 3.14
+  and twenty are also true; no git tags.
+
+Checked and found sound: placeholders both ways, `TEXT`, every id the script
+reaches for, no unreferenced function, the payload layout against its header,
+and every item of the three earlier reviews.
 
 ### 31 Jul 2026, at 0.9.4
 
@@ -1080,6 +1130,7 @@ dist\step2html.exe --selftest some.step
 | `requirements.txt` | `-e .`, чтобы одной командой ставилась единственная зависимость, объявленная в `pyproject.toml` |
 | `packaging/` | сборка standalone: `build.cmd`, spec для PyInstaller и лаунчер — точка входа замороженного файла |
 | `tests/` | четыре набора, `python tests/run_all.py`, около двенадцати секунд |
+| `docs/` | архитектура как есть, ревью по датам и план дробления монолитов |
 
 Командная строка и окно намеренно идут одним кодом. Отдельная реализация
 конвейера под GUI — это ровно то, как две ветки расходятся, и
@@ -1306,6 +1357,53 @@ Chrome отказывается скачивать `data:` длиннее при
 без обработки двух пальцев масштаба на нём нет никакого.
 
 ## Ревью
+
+### 2 сентября 2026, на 0.9.6
+
+Четвёртый проход, по всему, и с другим вопросом: не только что не так, но
+что здесь монолит и что можно унести в другой проект как есть. Полный список
+с воспроизведениями, структурная и функциональная схемы и план дробления —
+в `docs/`: [review-2026-09-02.md](docs/review-2026-09-02.md),
+[architecture.md](docs/architecture.md),
+[refactoring-plan.md](docs/refactoring-plan.md). Код этим проходом не
+менялся; исправления — первая фаза плана.
+
+* **Когда ничего не влезает в бюджет, остаётся ПЕРВАЯ сборка, а не самая
+  маленькая.** Комментарий говорит «наименьшая», лог говорит «keeping N
+  bytes» — где N от сборки при q = 1.0, которую `page` и `rep` всё ещё
+  держат, потому что цикл поиска их не переприсваивает. Воспроизведено на
+  фикстуре с бюджетом 1000 байт: построено 73 873 и 71 842, оставлено 73 873.
+* **Старому Chrome говорят, что файл повреждён.** Страница проверяет
+  `DecompressionStream` и обещает Chrome/Edge 80+, но `deflate-raw`
+  появился в Chrome 103; на 80–102 конструктор бросает исключение внутри
+  того же `try`, что и распаковка, и показывается не то сообщение. Пол —
+  103+, а `:has()` в стилях — 105+, с мягкой деградацией.
+* **Взвешивается не то, что записывается.** Бюджет сравнивается со
+  страницей как с байтами текста с `\n`, но `write_text` без `newline=`
+  даёт Windows превратить каждый конец строки в CR LF: файл на диске больше
+  взвешенного на байт на каждую строку шаблона — 1382 на фикстуре, 73 873 в
+  логе против 75 255 на диске, — так что бюджет ровно в размер STEP может
+  быть промахнут на столько, а `Report.size` считает не то, что выбирал
+  поиск. Найдено при написании теста к первому пункту.
+* **`gui` и `worker` устанавливаются модулями верхнего уровня** с такими
+  именами — столкновение ждёт машины, где стоит ещё один пакет. Становится
+  пакетом, и это первый шаг плана.
+* **Заплатка несёт свой шов как линию ребра** — тот самый артефакт, от
+  которого `test_repair.py` бережёт весь солид, принят на одной грани. Не
+  ошибка; не записано.
+* Мелочи: `_faces` не дедуплицирует грань, общую для двух солидов;
+  `<Configure>` на корне срабатывает на каждый дочерний виджет; `pack`
+  режет и разворачивает больше, чем нужно; проверка кавычек в
+  `test_page.py` слепо режет по `//`; `os` и `TopExp` не используются;
+  докстринг всё ещё называет `simple3d_config.json`; `const on` затенён в
+  обработчике клавиш; `worker.py` записывает инвариант, который spawn не
+  держит (tkinter в дочернем процессе *импортирован*, через `__mp_main__`,
+  — нельзя лишь `Tk()` на уровне модуля); этот файл говорит 3.12 и
+  двенадцать секунд там, где верны и 3.14 с двадцатью; тегов в git нет.
+
+Проверено и оказалось в порядке: места подстановки в обе стороны, `TEXT`,
+каждый элемент, который ищет скрипт, функции без ссылок, раскладка
+нагрузки против заголовка и все пункты трёх прошлых ревью.
 
 ### 31 июля 2026, на 0.9.4
 

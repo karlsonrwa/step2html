@@ -1,0 +1,303 @@
+# План дробления монолитов step2html
+
+Составлен 2 сентября 2026 по ревью 0.9.6. Что считается монолитом и почему —
+в [architecture.md](architecture.md); находки, на которые план ссылается
+по номерам, — в [review-2026-09-02.md](review-2026-09-02.md).
+
+## Правила на все фазы
+
+Взяты из привычек самого проекта, они уже трижды окупились.
+
+1. **Перенос — не переписывание.** Функция переезжает с докстрингом и
+   комментариями целиком: это журнал решений, и он ценнее кода.
+2. **Коммит переноса не меняет поведения.** Исправление — отдельный коммит,
+   с тестом, который сперва упал.
+3. **Тесты зелёные до и после каждого шага**, `python tests/run_all.py`.
+   Плюс золотой тест из фазы 0: та же фикстура, тот же CRC нагрузки.
+4. **Версия.** Правка — patch, смена того, как ставится или что лежит в
+   файле, — minor. Тег на каждый бамп.
+5. **Одна фаза — один PR или одна серия коммитов**, и не начинать следующую,
+   пока `packaging\build.cmd` и `--selftest` не подтвердили, что
+   замороженная сборка жива.
+
+## Целевая структура
+
+```
+step2html/                пакет вместо трёх плоских модулей
+  __init__.py             __version__, ConvertError, Options, Report, convert
+  meta.py                 tool_version, today
+  xcaf.py                 read_step, label_name, srgb_byte, get_color,
+                          instance_color, collect_parts
+  meshing.py              auto_deflection, faces, empty_faces, meshed_ok,
+                          patch_face, repair_parts
+  tessellate.py           tessellate, collect_edges
+  payload.py              FORMAT_VERSION = 4, HEADER, pack, unpack
+  page.py                 TEXT, build_page, js_escape; собирает viewer/
+  viewer/                 viewer.html, viewer.css и JS по модулям
+  budget.py               search(build, budget, …) — чистая функция
+  progress.py             PHASES, WEIGHTS, SPAN, Phaser
+  convert.py              Options, html_target, Report, convert
+  cli.py                  main
+  worker.py               run(opts, channel)
+  gui/
+    app.py                виджеты и проводка; main
+    job.py                Job: start / cancel / pump / close, без Tk
+    logpane.py            severity_of, COLOURS, LogPane
+    geometry.py           virtual_screen, reachable, parse, centre
+    settings.py           Settings: load / save с умолчаниями
+tests/
+  harness.py              check, FAILURES, run(main, title)
+  fixtures.py
+  golden.json             CRC и статистика фикстуры при фиксированных опциях
+  test_model / test_page / test_repair / test_gui   как сейчас
+  test_budget.py          поиск по бюджету, без OCP
+  test_progress.py        полоса, без OCP
+  test_geometry.py        окно и мониторы, без Tk
+  test_job.py             канал и смерть процесса, без Tk
+  run_all.py
+packaging/                как сейчас; в spec добавляются datas для viewer/
+docs/
+```
+
+Что после этого проверяется **без OCP и без STEP**: `payload`, `page`,
+`budget`, `progress`, `html_target`, `gui.geometry`, `gui.job`,
+`gui.settings`. Сегодня — ничего: любой тест начинается с импорта OCP.
+
+## Порядок фаз
+
+| Фаза | Что | Монолит | Оценка | Версия после |
+|---|---|---|---|---|
+| 0 | страховка: тег, золотой тест, исправления из ревью | — | ½ дня | 0.9.7 |
+| 1 | общий каркас тестов | М5 | ½–1 день | 0.9.8 |
+| 2 | пакет `step2html/` с прослойкой совместимости | М1 | 1–2 дня | 0.10.0 |
+| 3 | шаблон страницы — в файлы `viewer/` | М2, часть 1 | ½–1 день | 0.10.1 |
+| 4 | `convert` → `budget` + `progress` + оркестрация | М3 | 1 день | 0.10.2 |
+| 5 | окно → пять модулей | М4 | 1–2 дня | 0.10.3 |
+| 6 | JS по модулям, состояние явно | М2, часть 2 | 2–3 дня | 0.11.0 |
+| 7 | README → руководство + журналы, по одному жанру на файл | М6 | ½ дня | 0.11.1 |
+
+Порядок не случаен: 1 раньше 2, потому что тесты тянутся к одиннадцати
+внутренним именам и будут ломаться на каждом переносе — им нужна одна точка
+импорта. 3 раньше 6, потому что резать JS в файле `.py` без подсветки
+синтаксиса — то самое, что стоило афтернуна за один потерянный слеш.
+
+---
+
+## Фаза 0 — страховка и исправления (→ 0.9.7)
+
+1. `git tag v0.9.6` на текущем HEAD. Дальше тег на каждый бамп.
+2. Золотой тест в `test_page.py`: фикстура, `deflection=0.04`, `angle=15`,
+   `max_bytes=none`; сравнить с `tests/golden.json` CRC нагрузки, `raw`,
+   и `stats` (parts, faces, vertices, triangles, edges, число окружностей).
+   Не страницу целиком — в ней дата. Запустить дважды, убедиться, что
+   стабильно (тесселяция детерминирована; если нет — это отдельная
+   находка).
+3. Исправления, каждое своим коммитом с тестом, который сперва упал:
+   * № 1 — при `best is None` брать наименьшую из построенных. Тест:
+     бюджет 1000 на фикстуре, проверить, что `Report.size` — минимум.
+   * № 2 — `DecompressionStream` в отдельном `try`, `TypeError` →
+     `MSG.old`; текст «103+»; README «Known limitations» в обоих языках.
+   * № 6 — фильтр `event.widget is self.root` в `_remember_geometry`.
+   * № 9 — импорты `os`, `TopExp`; докстринг про `simple3d_config.json`;
+     переименовать `const on` в обработчике клавиш.
+   * № 10 — докстринг `worker.py`: инвариант «никакого `Tk()` на уровне
+     модуля», а не «никакого tkinter».
+4. Контрольная точка: 4/4, `--selftest` на замороженной сборке, тег v0.9.7.
+
+## Фаза 1 — М5, каркас тестов (→ 0.9.8)
+
+1. `tests/harness.py`: `check`, `FAILURES`, `run(main, title)` (печатает
+   заголовок, зовёт `main`, возвращает код), `ANGULAR`, `area(shape)`.
+2. Четыре набора переходят на `from harness import check, run`;
+   `fixtures._faces` → импорт из ядра (после фазы 2 — из `meshing`).
+3. `converted_fixture()` в harness: одна конверсия на процесс, с кешем —
+   сейчас `test_page` и `test_gui` строят фикстуру по два раза.
+4. Контрольная точка: вывод `run_all.py` построчно тот же, что до фазы.
+
+Риск: ни одного. Это единственная фаза, где нечему сломаться.
+
+## Фаза 2 — М1, пакет (→ 0.10.0)
+
+Порядок переноса — от наименее связанного к наиболее. После каждого пункта
+тесты зелёные, **потому что `step_to_html.py` остаётся прослойкой**, которая
+реэкспортирует всё, что от него ждут `gui`, `worker`, тесты и `launcher`.
+
+1. Скелет: `step2html/__init__.py` с `__version__` (переезжает сюда),
+   `ConvertError`. Прослойка: `step_to_html.py` делает
+   `from step2html import *` и дополняет по мере переноса.
+2. `meta.py` ← `tool_version`, `today`, `MONTHS`. `Path(__file__)` теперь
+   внутри пакета; `git -C` из подпапки работает, менять нечего.
+3. `payload.py` ← `pack` + **новый** `unpack(body) -> dict` — зеркало
+   заголовка, которое сейчас живёт только в JS и inline в `test_page.py`.
+   Тест: `unpack(pack(...))` возвращает то, что положили; `test_page`
+   переходит на `unpack` вместо ручного `struct.unpack`.
+4. `page.py` ← `TEXT`, `PAGE` (пока строкой), `build_page`, `_js`.
+5. `xcaf.py` ← секция B. `meshing.py` ← секция C (`_faces` → `faces`, без
+   подчёркивания: у него теперь есть внешние пользователи — тесты).
+6. `tessellate.py` ← секция D. Шов: `tessellate(parts, colour_of, …)`, где
+   `colour_of(shape) -> rgb | None` — замыкание над `color_tool`, которое
+   собирает `convert`. Тесты передают `lambda s: get_color(ct, s, None)`.
+7. `convert.py` ← `Options`, `html_target`, `Report`, `PHASES`, `WEIGHTS`,
+   `SPAN`, `MAX_BUILDS`, `convert`. `cli.py` ← `main`.
+8. `gui.py` → `step2html/gui/app.py` (пока одним файлом), `worker.py` →
+   `step2html/worker.py`. Импорты: `from step2html import convert as core`
+   там, где было `import step_to_html as core`.
+9. `pyproject.toml`: `packages = ["step2html", "step2html.gui"]`,
+   `version = {attr = "step2html.__version__"}`,
+   `step2html = "step2html.cli:main"`,
+   `step2html-gui = "step2html.gui.app:main"`. `requirements.txt` не
+   меняется. `step2html.cmd` → `python -m step2html.gui.app`.
+10. `packaging/`: `hiddenimports` → новые имена; `launcher.py` импортирует
+    `step2html.gui.app` и `step2html.cli`.
+11. Удалить прослойку `step_to_html.py`. Обновить таблицу «Package layout»
+    в README (обоих).
+12. Контрольная точка: 4/4 + золотой; `pip install -e .`, `step2html
+    --version`, `step2html-gui`; `packaging\build.cmd`, `--selftest`.
+
+Риски: `multiprocessing` на Windows импортирует `__main__` родителя в
+дочернем процессе — при запуске `python -m step2html.gui.app` это модуль
+пакета, `freeze_support()` остаётся на месте. Проверяется `test_gui` и
+`--selftest`, других способов нет.
+
+## Фаза 3 — М2 часть 1, шаблон из Python (→ 0.10.1)
+
+1. `PAGE` режется на три файла **дословно**: `viewer/viewer.html` (с
+   `<style>__CSS__</style>` и `<script>__JS__</script>` вместо тел),
+   `viewer/viewer.css`, `viewer/viewer.js`. Места подстановки `__X__` не
+   трогаются.
+2. `page.py` читает их через `importlib.resources.files("step2html.viewer")`
+   и подставляет в тот же единый `re.sub`. Важно: CSS и JS должны попадать в
+   `subs` **без** повторного сканирования — они не пользовательский текст,
+   но правило «подставленное не читается как шаблон» держится тем же
+   механизмом.
+3. `packaging/step2html.spec`: `datas=[(viewer, "step2html/viewer")]`.
+4. Тест: сгенерированная страница **побайтно** совпадает со страницей до
+   фазы, кроме строки с датой. Это единственный раз, когда сравнивается
+   страница целиком, и ради этого стоит сохранить эталон до начала.
+5. Если на машине есть `node`: `node --check viewer.js` в `test_page`
+   вдобавок к эвристике с кавычками; при отсутствии — пропуск с пометкой в
+   выводе.
+6. Контрольная точка: `test_page`, `--selftest`, страница открывается на
+   реальной плате.
+
+## Фаза 4 — М3, `convert` (→ 0.10.2)
+
+Сейчас `convert` — 230 строк, в которых валидация опций, полоса прогресса,
+поиск по бюджету, запись файла и лог. Поиск при этом — самое умное место
+конвейера — не имеет ни одного теста, потому что запускается только через
+OCP.
+
+1. `progress.py`: `Phaser(progress, planned)` с методами
+   `phase(index, build_no, done, total, detail)` и `tick(done, total, what)`
+   — то, что сейчас два замыкания внутри `convert`. Тест: значения
+   монотонны, последнее — `SPAN`, подпись содержит «build n of at most m»
+   при `planned > 1`.
+2. `budget.py`: `search(build, budget, *, first=1.0, max_builds=6,
+   target=0.97, close_enough=0.94, log) -> Result`, где
+   `build(q) -> Sample(bytes, holes, payload)`. Внутри — `predict`, отказ
+   дыр, «nowhere new left to look», и **выбор наименьшей при провале**
+   (№ 1). Ни строчки OCP.
+3. `test_budget.py` без OCP: `build` по степенному закону
+   `bytes = k * q**1.3`; проверить: (а) бюджет выше первой сборки — одна
+   сборка; (б) бюджет между — сходится за ≤ 4 и попадает в
+   `[close_enough, 1] * budget`; (в) сборка, открывающая дыру, — отвергнута,
+   но использована для подгонки; (г) ничего не влезло — возвращена
+   наименьшая; (д) `max_builds` не превышается.
+4. `convert.py` сжимается до: проверить → прочитать → допуск →
+   `search(one_build, budget)` → записать → `Report`. `one_build` —
+   отдельная функция с явными аргументами `(parts, colour_of, lin, deg,
+   repair, phaser)`, а не замыкание над двенадцатью переменными.
+5. Контрольная точка: на фикстуре и на реальной плате строки лога
+   `… -> N bytes, kept/over budget` совпадают до и после — та же сетка,
+   тем же числом сборок.
+
+## Фаза 5 — М4, окно (→ 0.10.3)
+
+1. `gui/geometry.py`: `virtual_screen() -> (x, y, w, h)`,
+   `reachable(w, h, x, y, screen)`, `parse(geometry) -> (w, h, x, y) | None`,
+   `centred(size, screen)`. Чистые функции, экран передаётся аргументом.
+   `test_geometry.py` без Tk: монитор слева от основного (отрицательный
+   `x`), отключённый второй монитор, окно выше всех экранов, `+-1920`.
+2. `gui/job.py`: `Job(target, args, on_log, on_progress, on_done,
+   on_error)` — `start`, `cancel`, `pump`, `close`; внутри `mp.Process`
+   и `mp.Queue`, ни строчки Tk. Смерть без сообщения с кодом ≠ 0 → `on_error`
+   с сегодняшним текстом. `test_job.py`: фальшивый воркер, шлющий четыре
+   вида сообщений; воркер, делающий `os._exit(3)`; `cancel` во время
+   работы.
+3. `gui/logpane.py`: `severity_of`, `COLOURS`, `LogPane(tk.Text)` с `log`
+   и `clear`.
+4. `gui/settings.py`: `@dataclass Settings` с умолчаниями (они сейчас
+   размазаны по `__init__` и `_load_config`), `load(path)`, `save(path)`.
+   Неизвестный ключ и битый JSON — умолчания молча, как сейчас.
+5. `gui/app.py`: то, что осталось — виджеты, `options()`, проводка
+   `Job` → `LogPane`/полоса/статус, `open_result`.
+6. `test_gui.py` не меняется по смыслу — это интеграционный тест, и он
+   должен пройти как есть. Плюс проверка, что `App.__init__` не читает
+   `CONFIG` напрямую, а через `Settings.load`.
+7. Контрольная точка: 4/4 + два новых набора; `--selftest`.
+
+## Фаза 6 — М2 часть 2, JS по модулям (→ 0.11.0)
+
+Просмотрщик обязан остаться одним `<script>` без модулей во время
+выполнения: `file://` плюс `type="module"` блокируется CORS в Chrome.
+Поэтому модули — на этапе сборки, склейкой в фиксированном порядке.
+
+1. Разметить `viewer.js` секциями `// ==== имя` в порядке будущих файлов.
+   Коммит без изменения кода.
+2. Поднять чистые помощники наверх с явными аргументами, по одному
+   коммиту: `mat.js` (`mul`, `rotX`, `rotY`, `orthonormalise`, `basis`);
+   `payload.js` (`crc32`, `parse(bin) -> {pos, nrm, col, idx, …}`);
+   `hash.js` (`encodeView(cam)`, `decodeView(hash)`); `camera.js`
+   (`home`, `fitDist`, `setDist`, `setPivot`, `VIEWS` — над объектом
+   `cam`, не над замыканием).
+3. Один объект состояния `S = {cam, marks, markCir, snapNow, labelAt,
+   hoverFace, hoverPoint, cursor, touched, ortho, edges, themeMode, light}`
+   вместо сорока `let`. Каждая функция принимает `S` или его часть.
+4. Дальше по одному файлу: `gl.js` (шейдеры, буферы, `draw(S)`),
+   `pick.js`, `snap.js`, `measure.js` (`paintMeasure`, табличка, перетаскивание),
+   `overlays.js` (pivot, тройка осей), `png.js`, `layout.js`
+   (`chooseLayout`, тема, наблюдатель), `input.js` (указатели, колесо,
+   клавиши — **одно** место для `Escape`), `boot.js` (проводка).
+5. `page.py` склеивает файлы из списка `ORDER` в один `<script>`; список —
+   в одном месте, и тест проверяет, что каждый файл в `viewer/` в нём есть.
+6. При наличии `node`: `tests/viewer.test.js` для чистых модулей — `mat`
+   (ортонормировка возвращает поворот), `hash` (кодирование/декодирование
+   16 чисел, включая 120000 и 1e6), `payload` (заголовок из `pack`),
+   `camera.fitDist` (восемь углов внутри кадра). Запуск из `run_all`, если
+   `node` на PATH.
+7. Ручной прогон по списку из справки на реальной плате, до и после каждого
+   пункта 4: поворот, щелчок-центр, измерение, привязка к окружности, PNG,
+   восемь видов, восстановление из адреса, раскладка на 780×360 и 360×780.
+   Список — в `docs/viewer-checklist.md`, потому что тест этого не видит.
+8. Контрольная точка: `test_page`, золотой, снимки до/после на трёх
+   размерах окна, `--selftest`.
+
+Риск главный: TDZ. Сейчас слушатели ссылаются на `measure`, `marks`,
+`snapNow`, объявленные ниже, и это работает только потому, что слушатели
+срабатывают позже. При переносе в файлы порядок объявлений станет явным —
+это и есть причина шага 3.
+
+## Фаза 7 — М6, README (→ 0.11.1)
+
+README — 1444 строки, два языка, три жанра: руководство, журнал решений
+(«Things already tried») и журнал ревью. Каждая правка пишется дважды, а
+запись ревью — дважды по-русски и по-английски.
+
+1. `README.md` — короткий, английский: зачем, установка, запуск, ключи,
+   структура, ссылки. `README.ru.md` — то же по-русски. Дисклеймер
+   остаётся наверху обоих.
+2. `docs/design-notes.md` + `.ru.md` ← «Things already tried».
+   `docs/reviews.md` + `.ru.md` ← «Reviewed». `docs/performance.md`,
+   `docs/standalone.md` ← соответствующие разделы.
+3. Проверка: ни одной мёртвой якорной ссылки; `pyproject` по-прежнему
+   читает `README.md`.
+
+---
+
+## Что план **не** делает
+
+* Не переводит на pytest. `run_all.py` с подпроцессами изолирует OCP между
+  наборами и держит вывод читаемым; pytest — отдельное решение, после.
+* Не меняет формат `S3DH` и не трогает шейдеры. Версия формата остаётся 4.
+* Не ускоряет `pack` (№ 7) и не фильтрует шов заплатки (№ 4) — обе вещи
+  требуют замера на реальной плате и сами по себе не дробление.
