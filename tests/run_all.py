@@ -21,6 +21,7 @@ JOBS = [
     ("the generated page",       TESTS / "test_page.py"),
     ("repairing a refused face", TESTS / "test_repair.py"),
     ("the window",               TESTS / "test_gui.py"),
+    ("editing a field",          TESTS / "test_editing.py"),
     # No OCCT either, but each child is a fresh interpreter, so it is not fast.
     ("the child process",        TESTS / "test_job.py"),
 ]

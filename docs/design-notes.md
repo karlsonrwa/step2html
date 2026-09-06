@@ -194,3 +194,16 @@ on a deliberately broken one.
 
 **Touch needs two pointers.** A phone never sends a `wheel` event, so without
 the two-pointer case there is no way to zoom on one at all.
+
+**A keyboard shortcut bound to a letter is bound to a layout.** Tk binds
+`<<Paste>>` to `<Control-Key-v>` - the keysym, the Latin letter - and under a
+Russian layout the V key arrives as `??` on Tk 9.0 (`Cyrillic_ve` on others),
+so Ctrl+V did nothing in any field of the window on the very machines it is
+meant for, while the same key pasted everywhere else on the desktop. The
+physical key is `event.keycode` and the letter is `event.keysym`; on a machine
+with two layouts they agree only half the time. `gui/editing.py` goes by the
+keycode and declines when the keysym is the Latin letter, or under a Latin
+layout every paste would happen twice. Measured rather than assumed:
+`tests/test_editing.py` switches the layout for its own thread and presses the
+key by keycode - the "cannot be tested" that stood in the way was as wrong as
+"no display" had been.

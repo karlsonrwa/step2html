@@ -9,8 +9,10 @@ implementation of the pipeline behind a GUI is how the two drift apart.
 
 What is here is the widgets and the wiring between them. The child process
 and its channel are job.py, the coloured log is logpane.py, where the window
-goes is geometry.py, and what it remembers is settings.py - each of them
-without a window, and three of them tested without one.
+goes is geometry.py, what it remembers is settings.py, and how a field is
+edited - the right-click menu, and Ctrl+C/V under a keyboard layout that is
+not Latin - is editing.py; each of them without a window, and three of them
+tested without one.
 """
 from __future__ import annotations
 
@@ -75,6 +77,7 @@ try:
 except BaseException as _exc:      # SystemExit included: that is how core says it
     _cannot_start(_exc)
 
+from step2html.gui import editing
 from step2html.gui.geometry import (FIRST_RUN_SIZE, centred, parse, reachable,
                                     virtual_screen)
 from step2html.gui.job import Job
@@ -138,20 +141,20 @@ class App:
         frame.columnconfigure(1, weight=1)
 
         ttk.Label(frame, text="STEP file").grid(row=0, column=0, sticky="w", **pad)
-        ttk.Entry(frame, textvariable=self.step_path).grid(
-            row=0, column=1, sticky="ew", **pad)
+        self.step_entry = ttk.Entry(frame, textvariable=self.step_path)
+        self.step_entry.grid(row=0, column=1, sticky="ew", **pad)
         ttk.Button(frame, text="Browse...", command=self._browse_step).grid(
             row=0, column=2, sticky="ew", **pad)
 
         ttk.Label(frame, text="Output HTML").grid(row=1, column=0, sticky="w", **pad)
-        ttk.Entry(frame, textvariable=self.out_path).grid(
-            row=1, column=1, sticky="ew", **pad)
+        self.out_entry = ttk.Entry(frame, textvariable=self.out_path)
+        self.out_entry.grid(row=1, column=1, sticky="ew", **pad)
         ttk.Button(frame, text="Save as...", command=self._browse_out).grid(
             row=1, column=2, sticky="ew", **pad)
 
         ttk.Label(frame, text="Title").grid(row=2, column=0, sticky="w", **pad)
-        ttk.Entry(frame, textvariable=self.title_text).grid(
-            row=2, column=1, columnspan=2, sticky="ew", **pad)
+        self.title_entry = ttk.Entry(frame, textvariable=self.title_text)
+        self.title_entry.grid(row=2, column=1, columnspan=2, sticky="ew", **pad)
         ttk.Label(frame, text="Left empty, each follows the STEP's own name.",
                   foreground=MUTED).grid(row=3, column=1, columnspan=2,
                                          sticky="w", padx=6)
@@ -224,6 +227,20 @@ class App:
         bar = ttk.Scrollbar(frame, command=self.log_view.yview)
         bar.grid(row=10, column=3, sticky="ns", pady=(6, 0))
         self.log_view.configure(yscrollcommand=bar.set)
+
+        # Every field takes a paste - by right-click, and by Ctrl+V whatever
+        # the keyboard layout - and the log copies the same way. The Spinbox
+        # is left to Tk: its arrows are the control. See editing.py.
+        for field in (self.step_entry, self.out_entry, self.title_entry,
+                      self.deflection_entry, self.budget_entry):
+            editing.attach(field, self._frozen)
+        editing.attach_shortcuts(self.log_view)
+
+    def _frozen(self) -> bool:
+        """Whether the fields take no edits: a build is in flight, and the
+        Options were taken when Generate was pressed. What the edit menu asks
+        before it shows."""
+        return self.job is not None
 
     def _sync_enabled(self) -> None:
         """State FLAGS, the same mechanism _busy uses. The "state" option is a

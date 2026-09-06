@@ -247,12 +247,12 @@ Pass `--max-bytes none` for a single build.
 | | |
 |---|---|
 | `step2html/` | the pipeline, one module per concern. `convert.py` is the one entry point, `convert(Options, log, progress)`; `xcaf.py` reads the STEP and its colours, `meshing.py` meshes and repairs, `tessellate.py` makes triangles, edges and circles, `payload.py` packs them, `page.py` writes the page around them from the template in `viewer/` - the markup, the stylesheet, and the script as one file per concern, concatenated in the order `page.py` names, with everything stateful in `boot.js` and the pure parts checked by node; `cli.py` is a thin command line over the lot, and `python -m step2html` reaches it from a checkout |
-| `step2html/gui/` | the window, `python -m step2html.gui`. `app.py` is the widgets and the wiring, and builds the same `Options` the CLI does; `job.py` is the child process and its channel, `logpane.py` the coloured log, `geometry.py` where the window goes, `settings.py` what it remembers - none of those four needs a window, and three are tested without one |
+| `step2html/gui/` | the window, `python -m step2html.gui`. `app.py` is the widgets and the wiring, and builds the same `Options` the CLI does; `job.py` is the child process and its channel, `logpane.py` the coloured log, `geometry.py` where the window goes, `settings.py` what it remembers, `editing.py` the right-click menu on a field and Ctrl+C/V/X/A under a keyboard layout that is not Latin - none of those five needs a window, and three are tested without one |
 | `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | nine suites, `python tests/run_all.py`, twenty to thirty seconds; five of them - the budget search, the progress bar, window geometry, the child process and the viewer's pure modules under node - need no OCCT |
+| `tests/` | ten suites, `python tests/run_all.py`, twenty to thirty seconds; five of them - the budget search, the progress bar, window geometry, the child process and the viewer's pure modules under node - need no OCCT |
 | `docs/viewer-checklist.md` | what the tests cannot see: the gestures, run by hand on a real board after any change under `viewer/` |
 | `docs/` | the design record (`design-notes.md`), the review log (`reviews.md`), the profile (`performance.md`), the frozen build (`standalone.md`), the architecture and the plan that took the monoliths apart, and the checklist for the viewer; each of the first four also in Russian, as `.ru.md` |
 
