@@ -158,6 +158,16 @@ Measured on the same run: `tessellate` 27.1 s → 20.6 s, `pack` 3.58 s →
 `np.add.at` over the triangles as emitted, corner by corner — because the
 golden is the proof and a different summation order would have moved it.
 
+**And in 0.12.1, the edge points.** `collect_edges` walks the same faces in
+the same order as the face loop, so it now takes each edge point as a row of
+the world coordinates that loop has already computed - the face's base
+index plus the polygon's node number - instead of `Node`, `Transformed` and
+`X/Y/Z` on every one of 366k edge nodes. Same check against 0.12.0 on the
+same meshed board: everything identical, the normals to the last double this
+time, the payload end to end; `tessellate` 21.0 s → 17.5 s. The clamp in
+the normals-to-bytes pass, 0.3 s in the Python loop, is 1.6 ms of 22.8 under
+numpy, so it stays as the safety net it is.
+
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
 last one 1,492,124 triangles, three times the first. The STEP is read once,

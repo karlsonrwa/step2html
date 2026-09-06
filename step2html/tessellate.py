@@ -43,6 +43,12 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     # the whole of what "which face is this triangle on" needs - 13 kB on a
     # 3286-face board, against 299 kB for an id on every triangle.
     face_starts: list[int] = []
+    # Where each face's VERTICES begin, one entry per face in walk order and
+    # None for a face with no triangulation - so collect_edges, which walks
+    # the same faces in the same order, can take its edge points from the
+    # world coordinates computed here instead of transforming every node a
+    # second time.
+    bases: list[int | None] = []
     tick = tick or (lambda _d, _t, _w: None)
     # Counted up front so the bar means something: a real board is one part
     # with 900 faces, and per-part progress would sit still for the whole of
@@ -82,6 +88,7 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
             loc = TopLoc_Location()
             tri = BRep_Tool.Triangulation_s(face, loc)
             if tri is None:
+                bases.append(None)
                 continue
             faces_seen += 1
             # Where this face's triangles begin. Recorded here, before any of
@@ -101,6 +108,7 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
                    or part_rgb)
 
             base = len(pos) // 3
+            bases.append(base)
             nb_nodes = tri.NbNodes()
             # The transform done here, from the twelve numbers of the
             # gp_Trsf, and X, Y, Z read once per node. What a node costs is
@@ -134,10 +142,11 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
                     a, b, c = triangle(i).Get()
                     idx.extend((base + a - 1, base + b - 1, base + c - 1))
 
-    nrm = vertex_normals(pos, idx)
+    world = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+    nrm = vertex_normals(world, idx)
 
     epos, eidx, from_mesh, from_curve, circles = collect_edges(
-        parts, linear, angular, tick=tick, total=total_faces)
+        parts, linear, angular, world, bases, tick=tick, total=total_faces)
 
     stats = {
         "parts": len(parts),
@@ -188,8 +197,17 @@ def vertex_normals(pos, idx):
     return N.ravel()
 
 
-def collect_edges(parts, linear, angular, tick=None, total=1):
+def collect_edges(parts, linear, angular, world, bases, tick=None, total=1):
     """Real B-rep edges as line segments, taken FROM THE TRIANGULATION.
+
+    *world* is every vertex tessellate emitted, in world coordinates, as an
+    (N, 3) array, and *bases* says where each face's vertices begin in it,
+    one entry per face in the order faces() walks them (None for a face with
+    no triangulation). An edge's polygon names nodes of the face's own
+    triangulation, so its points are rows of *world* - the very doubles the
+    face loop computed - and nothing is transformed twice. On a 366k-node
+    board that was the Node, Transformed and X/Y/Z call on every edge point,
+    a third of this function's time (docs/performance.md).
 
     Not from the true curve, and that is the whole point. OCCT discretises an
     edge once and hands the same discretisation to both faces that share it -
@@ -212,7 +230,8 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
     mesh a circle is visibly a polygon. The surface is exactly as coarse, so
     the line finally agrees with the silhouette it is drawn on.
     """
-    pos: list[float] = []
+    chunks: list[np.ndarray] = []           # (k, 3) points per edge, in order
+    nverts = 0
     idx: list[int] = []
     from_mesh = from_curve = 0
     tick = tick or (lambda _d, _t, _w: None)
@@ -257,9 +276,11 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
         circles.append(rec)
 
     def emit(points):
-        first = len(pos) // 3
-        for x, y, z in points:
-            pos.extend((x, y, z))
+        """*points* is a (k, 3) array: one polyline, k - 1 segments."""
+        nonlocal nverts
+        first = nverts
+        chunks.append(points)
+        nverts += len(points)
         for k in range(len(points) - 1):
             idx.extend((first + k, first + k + 1))
 
@@ -270,10 +291,10 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
             for face in faces(source):
                 if done % 25 == 0:
                     tick(done, total, "edges")
+                base = bases[done]
                 done += 1
                 floc = TopLoc_Location()
                 tri = BRep_Tool.Triangulation_s(face, floc)
-                trsf = place.Multiplied(floc.Transformation())
                 exp = TopExp_Explorer(face, TopAbs_EDGE)
                 while exp.More():
                     edge = TopoDS.Edge_s(exp.Current())
@@ -286,13 +307,19 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
                     note_circle(edge, place)
 
                     poly = (BRep_Tool.PolygonOnTriangulation_s(edge, tri, floc)
-                            if tri is not None else None)
+                            if tri is not None and base is not None else None)
                     if poly is not None:
                         nodes = poly.Nodes()
-                        if nodes.Length() >= 2:
-                            emit([(lambda q: (q.X(), q.Y(), q.Z()))(
-                                      tri.Node(nodes.Value(i)).Transformed(trsf))
-                                  for i in range(nodes.Lower(), nodes.Upper() + 1)])
+                        n = nodes.Length()
+                        if n >= 2:
+                            # The polygon's node numbers are 1-based indices
+                            # into this face's triangulation, whose vertices
+                            # sit at world[base:]; the rows are copied, so the
+                            # points are the face loop's own doubles.
+                            lo = nodes.Lower()
+                            ids = np.fromiter((nodes.Value(i) for i in range(lo, lo + n)),
+                                              dtype=np.int64, count=n)
+                            emit(world[base + ids - 1])
                             seen.Add(edge)
                             from_mesh += 1
                             continue
@@ -306,10 +333,12 @@ def collect_edges(parts, linear, angular, tick=None, total=1):
                         continue
                     if disc.NbPoints() < 2:
                         continue
-                    emit([(lambda q: (q.X(), q.Y(), q.Z()))(
-                              curve.Value(disc.Parameter(k)).Transformed(place))
-                          for k in range(1, disc.NbPoints() + 1)])
+                    emit(np.array([(lambda q: (q.X(), q.Y(), q.Z()))(
+                                       curve.Value(disc.Parameter(k)).Transformed(place))
+                                   for k in range(1, disc.NbPoints() + 1)],
+                                  dtype=np.float64).reshape(-1, 3))
                     seen.Add(edge)
                     from_curve += 1
 
-    return pos, idx, from_mesh, from_curve, circles
+    epos = np.concatenate(chunks).ravel() if chunks else np.zeros(0, dtype=np.float64)
+    return epos, idx, from_mesh, from_curve, circles
