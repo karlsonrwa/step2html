@@ -50,3 +50,51 @@ shading and is a piece of work rather than a tweak. The largest remaining
 lever is not in the code at all: a build that overshoots the budget is thrown
 away, and this board throws one away every time — `--max-bytes none` is one
 build and about seven seconds.
+
+## A big board, and finding 7 of the September review (6 Sep 2026)
+
+Cadence_Demo, 25.1 MB of STEP, 3 parts, one build at the automatic mesh
+(0.1271 mm / 15°): 524,738 vertices, 513,407 triangles, 315,653 edge
+segments, 11,028 circles; the payload is 22.9 MB raw and 8.1 MB as base64.
+Wall clock around each phase:
+
+| | |
+|---|---|
+| reading the STEP | 22.0 s |
+| meshing, `BRepMesh` and patches | 5.9 s |
+| tessellation, edges and circles | 30.2 s |
+| `pack` | 3.6 s |
+
+Inside `pack`, one run with a stopwatch between the phases:
+
+| | |
+|---|---|
+| deflate at level 9 | 1.26 s |
+| the normals to bytes | 0.79 s |
+| the centring loop and the radius | 0.47 s |
+| centring the edges, and six more slices | 0.40 s |
+| the six slices for the centre | 0.19 s |
+| `struct.pack` of the positions through `*args` | 0.09 s |
+| `struct.pack` of the indices | 0.11 s |
+| edges, faces, circles | 0.13 s |
+| crc32 and base64 | 0.05 s |
+
+So finding 7 of the 2 September review is right about the work and wrong
+about its weight: the `*args` unpacking and the twelve slices are 0.4 s of a
+62 s build. Written with `array.tobytes()` and every min and max taken once,
+`pack` goes from 3.60 s to 3.21 s with byte-identical output — worth doing the
+next time the file is open, not worth a release. The two heavier things:
+
+* **Deflate at level 9 earns its second.** Level 6 takes 0.46 s instead of
+  1.21 s and the base64 comes out 4.0 % larger, 8,462,320 bytes against
+  8,136,212; level 8 is slower than 9 *and* larger. Under a budget those
+  326 KB are a coarser mesh, so 9 stays — the earlier finding on the small
+  board holds on the big one.
+* **The normals pass can lose its clamp.** Every component is within [-1, 1]
+  here, as `tessellate` hands them over, and `int(round(v * 127)) + 128`
+  without the `max(0, min(255, ...))` gives the same bytes in 0.45 s instead
+  of 0.76 s. Only right behind a guard that the normals are unit, which is a
+  pass of its own.
+
+And the larger truth of this board: tessellation is half the build. The
+Python loop over 525k nodes is where a big board spends its time, not `pack`.
