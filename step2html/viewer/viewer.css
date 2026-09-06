@@ -182,6 +182,16 @@
     color:var(--accent);background:none;border:0;border-radius:4px;
     padding:7px 14px;cursor:pointer}
   dialog .close:hover{background:var(--hover)}
+  /* Over the view from the first paint until the first frame: a big file
+     is a few seconds of nothing otherwise, and a page that shows nothing
+     looks like a page that has died. Painted by the browser before the
+     script runs, since it is plain markup ahead of the payload; the counter
+     is filled in as the bytes come out, and boot() takes it down. */
+  #loading{position:absolute;inset:0;z-index:5;display:grid;place-items:center;
+    text-align:center;background:var(--bg);color:var(--fg)}
+  #loading p{font-size:15px;opacity:.75}
+  #loading b{display:inline-block;min-width:3.2em;text-align:left;
+    font-variant-numeric:tabular-nums;color:var(--strong)}
   /* Above the button: when this is up, nothing else should be reachable. */
   #err{position:fixed;inset:0;z-index:10;display:none;place-items:center;
     text-align:center;background:var(--bg);padding:40px}

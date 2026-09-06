@@ -219,3 +219,14 @@ primitive before using it - the counts, the first node's place, the first
 triangle's winding - and walks the face node by node when any answer is no,
 with a line in the log. On 6,614 faces the questions cost under a tenth of a
 second; the alternative is a silently wrong picture.
+
+**`Uint8Array.from` over a string is a call per character.** The base64 of
+the payload was turned into bytes with `Uint8Array.from(atob(b64), c =>
+c.charCodeAt(0))` - one line, the idiom every answer on the subject gives -
+and on the 24 MB page that line took 3.1 s of a 4.7 s open, with the parser
+blocked and nothing on screen, because the string is iterated character by
+character and each character becomes a string of its own before the
+callback sees it. A `for` loop over `charCodeAt` into a preallocated array
+does the same in 0.1 s. It sat there through every profile of the Python
+side because nobody had timed the page from the inside; the measurement in
+docs/performance.md is the whole of the argument.

@@ -7,8 +7,23 @@
 // payload.py, and the two must agree on every offset.
 const T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;
   for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
-function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)
-  c=T[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+// The CRC as a running value, so it can be fed the inflated chunks as they
+// arrive instead of making a second pass over the whole; crc32(b) is the
+// same thing over one buffer, and what the tests check.
+function crcRun(c,b){for(let i=0;i<b.length;i++)c=T[(c^b[i])&255]^(c>>>8);return c}
+function crc32(b){return (crcRun(0xFFFFFFFF,b)^0xFFFFFFFF)>>>0}
+
+// One turn of the event loop, so the page can paint what it has just been
+// told. A posted message, not setTimeout: nested timers are clamped to four
+// milliseconds each, and a thousand chunks would spend four seconds waiting.
+// Not requestAnimationFrame either - an embedded or offscreen view may never
+// run a frame callback, and a loader that waited for one would hang there.
+const breath=(()=>{
+  if(typeof MessageChannel==='undefined') return ()=>new Promise(r=>setTimeout(r,0));
+  const ch=new MessageChannel(); let waiting=[];
+  ch.port1.onmessage=()=>{const w=waiting; waiting=[]; w.forEach(r=>r());};
+  return ()=>new Promise(r=>{waiting.push(r); ch.port2.postMessage(0);});
+})();
 
 // The base64 undone and inflated, or a throw with a kind: 'old' where the
 // browser cannot do it at all, 'unpack' where the bytes will not inflate.
@@ -16,14 +31,46 @@ function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)
 // arrived in Chrome 80 but the deflate-raw FORMAT only in 103, and a browser
 // in between throws from the constructor - inside the same try as the
 // unpacking, that read as "damaged file" about a file that was whole.
-async function inflate(b64){
+//
+// -> {bin, crc}: the bytes, and their CRC32 run over them as they came.
+// *expect* is the length the page promises, for the counter; *progress*
+// is told ('decode', 0..1) while the base64 is read and ('inflate', 0..1)
+// while the bytes come out, and the page may paint between calls.
+//
+// The base64 step was the whole of the waiting once: written as
+// Uint8Array.from(atob(b64), c=>c.charCodeAt(0)) it made a one-character
+// string and a call for every byte - 3.1 s for the 18 MB of a 24 MB page,
+// against 0.3 s to inflate them and 0.2 s to check them. A plain loop over
+// charCodeAt does the same in 0.1 s (docs/performance.md). In slices, with a
+// breath between, so the counter moves while it runs.
+async function inflate(b64,expect,progress){
+  progress=progress||(()=>{});
   if(!('DecompressionStream' in window)) throw {kind:'old'};
   let ds;
   try{ ds=new DecompressionStream('deflate-raw'); }catch(e){ throw {kind:'old'}; }
   try{
-    const packed=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
-    const buf=await new Response(new Blob([packed]).stream().pipeThrough(ds)).arrayBuffer();
-    return new Uint8Array(buf);
+    const bs=atob(b64), n=bs.length, packed=new Uint8Array(n), SLICE=1<<22;
+    for(let i=0;i<n;i+=SLICE){
+      const end=Math.min(n,i+SLICE);
+      for(let j=i;j<end;j++) packed[j]=bs.charCodeAt(j);
+      progress('decode',end/n); await breath();
+    }
+    // Inflated chunk by chunk as the stream hands them over, the CRC run
+    // over each as it arrives, and the counter told how far along the
+    // promised length the bytes have got.
+    const reader=new Blob([packed]).stream().pipeThrough(ds).getReader();
+    const parts=[]; let got=0, crc=0xFFFFFFFF, told=-1;
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done) break;
+      parts.push(value); got+=value.length; crc=crcRun(crc,value);
+      const f=expect>0?Math.min(1,got/expect):0, step=Math.floor(f*100);
+      if(step!==told){ told=step; progress('inflate',f); await breath(); }
+    }
+    progress('inflate',1);
+    const bin=new Uint8Array(got); let o=0;
+    for(const p of parts){ bin.set(p,o); o+=p.length; }
+    return {bin,crc:(crc^0xFFFFFFFF)>>>0};
   }catch(e){ throw {kind:'unpack'}; }
 }
 

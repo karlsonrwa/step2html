@@ -18,13 +18,24 @@ const EDGE_BIAS=__EDGE_BIAS__;
 // whole job is to keep the page's promise about a damaged file.
 function fail(m){document.getElementById('errtext').textContent=m;
   document.getElementById('err').style.display='grid';
-  document.getElementById('cv').style.display='none';}
+  document.getElementById('cv').style.display='none';
+  document.getElementById('loading').style.display='none';}
 
 async function boot(){
-  let bin;
-  try{ bin=await inflate(document.getElementById('geo').textContent.trim()); }
+  // The counter over the view, up since the first paint: the base64 is a
+  // fifth of the wait and the inflating the rest, and both report as they
+  // go. Taken down just before the first frame, further down.
+  const loading=document.getElementById('loading'),
+        loadpct=document.getElementById('loadpct');
+  let shown=-1;
+  const tell=(phase,f)=>{
+    const p=Math.round(phase==='decode' ? f*20 : 20+f*80);
+    if(p!==shown){ shown=p; loadpct.textContent=p+' %'; }
+  };
+  let bin, crc;
+  try{ ({bin,crc}=await inflate(document.getElementById('geo').textContent.trim(),RAW,tell)); }
   catch(e){ return fail(e&&e.kind==='old' ? MSG.old : MSG.unpack); }
-  if(bin.length!==RAW||crc32(bin)!==CRC)
+  if(bin.length!==RAW||crc!==CRC)
     return fail(MSG.crc+' ('+RAW+' / '+CRC.toString(16)+')');
   const mesh=parsePayload(bin);
   const span=mesh.span, half=mesh.half, nfa=mesh.nfa, ncr=mesh.ncr,
@@ -343,6 +354,7 @@ async function boot(){
   ro.observe(body);
   addEventListener('pagehide',()=>ro.disconnect());
   chooseLayout(bar,body);
+  loading.style.display='none';      // the next thing on screen is the model
   applyTheme();                      // sets the clear colour and draws
 }
 boot();

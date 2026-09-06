@@ -231,6 +231,54 @@ export against the node walk on every run. The whole of one build,
 `--max-bytes none` from the command line on the same board: **51 s on
 master, 44 s on the branch**, wall clock.
 
+## The browser side (6 Sep 2026)
+
+Measured in the embedded browser, on the 24.4 MB page of Cadence_Demo
+(63.4 MB of payload once inflated, 1.49 M triangles) and on its 8.2 MB page
+(22.9 MB, 513k triangles), phase by phase through the viewer's own functions
+re-run from the console:
+
+| | 24.4 MB page | 8.2 MB page |
+|---|---|---|
+| `atob` | 30 ms | 12 ms |
+| `Uint8Array.from(bs, c => c.charCodeAt(0))`, as shipped | **3,147 ms** | **1,040 ms** |
+| the same as a loop over `charCodeAt` | 99 ms | 46 ms |
+| `fetch` of a `data:` URL, the other idiom | 861 ms | |
+| `DecompressionStream`, deflate-raw | 294 ms | 120 ms |
+| `crc32` | 188 ms | 69 ms |
+| `parsePayload` | 23 ms | |
+| the buffers to the GPU | 90 ms | |
+| the first frame | 6 ms | |
+| `domInteractive`, from navigation | 4,091 ms | 1,598 ms |
+
+`domInteractive` is when the browser had parsed the page and run the inline
+script up to its first `await` - and the base64 step sat before that `await`,
+so those seconds were spent with the parser blocked and nothing on screen.
+Two thirds of opening the big page, and more than half of the demo's, were
+one line: `Uint8Array.from` over a string calls back once per character and
+makes a one-character string for each. A plain loop over `charCodeAt` is
+thirty times faster; `fetch` of a `data:` URL, the idiom that avoids the
+loop, is eight times slower than it.
+
+**Done in 0.14.0:** the loop, in 4 MB slices; the inflate taken chunk by
+chunk from the stream with the CRC run over each chunk as it arrives, one
+pass over the 63 MB instead of two; and a counter over the view -
+"Opening the model… 42 %" - that is plain markup ahead of the payload, so
+the browser paints it before the script runs, moved by the decode (a fifth)
+and the inflate (the rest) as they go, and taken down before the first
+frame. The page breathes between chunks through a posted message, not a
+timer: nested timers are clamped to four milliseconds and a thousand chunks
+would have waited four seconds.
+
+Measured again on the same two pages, rebuilt with 0.14.0, in the same
+browser: `domInteractive` **4,091 → 780 ms** on the 24.4 MB page and
+**1,598 → 225 ms** on the 8.2 MB one, the inflate with its counter 656 ms
+and 202 ms after that, the counter going 0 → 100 in 102 steps, and a
+screenshot taken as the big page came up reading "Opening the model… 18 %"
+over an empty view with the panel already there. The whole open of the
+big page is about 1.6 s where it was 4.7, and of the demo about 0.45 s
+where it was 1.8.
+
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
 last one 1,492,124 triangles, three times the first. The STEP is read once,

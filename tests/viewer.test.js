@@ -11,10 +11,12 @@ const path = require('path');
 const dir = path.join(__dirname, '..', 'step2html', 'viewer');
 const src = ['payload.js', 'mat.js', 'camera.js', 'pick.js', 'hash.js']
   .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
-const V = new Function('window', src + '\nreturn {crc32, parsePayload, mul, rotX, rotY, '
+// globalThis stands in for window: node has DecompressionStream, atob, Blob
+// and MessageChannel of its own since 18, which is what inflate needs.
+const V = new Function('window', src + '\nreturn {crc32, crcRun, inflate, parsePayload, mul, rotX, rotY, '
   + 'orthonormalise, basis, FOV, fitDist, VIEWS, homeCam, projection, modelView, '
   + 'setDist, setPivot, toModel, toScreen, pxSize, pick, faceOfTriangle, snapAt, '
-  + 'SNAP_PX, encodeView, decodeView};')({});
+  + 'SNAP_PX, encodeView, decodeView};')(globalThis);
 
 let failures = 0;
 function check(ok, what, detail) {
@@ -158,5 +160,36 @@ check(V.VIEWS.length === 8, 'there are eight named views');
         'anything that is not sixteen numbers is ignored');
 }
 
-console.log(failures ? `${failures} FAILED` : 'all passed');
-process.exit(failures ? 1 : 0);
+// ---- inflate: from the page's text to the bytes, with the counter ------- #
+// Async, so it runs last and the verdict waits for it. The body is longer
+// than one slice of the base64 loop and than one chunk of the stream, so
+// both counters have to move more than once.
+(async () => {
+  const zlib = require('zlib');
+  const body = Buffer.alloc(5 * 1024 * 1024);
+  for (let i = 0; i < body.length; i++) body[i] = (i * 7919 + (i >> 12)) & 255;
+  const b64 = zlib.deflateRawSync(body).toString('base64');
+  const seen = [];
+  let out = null, why = '';
+  try { out = await V.inflate(b64, body.length, (phase, f) => seen.push([phase, f])); }
+  catch (e) { why = JSON.stringify(e); }
+  check(out && Buffer.compare(Buffer.from(out.bin), body) === 0,
+        'inflate gives back the bytes deflate took', why || `${out && out.bin.length} bytes`);
+  check(out && out.crc === V.crc32(out.bin) && out.crc === (zlib.crc32 ? zlib.crc32(body) : out.crc),
+        'and the CRC it ran alongside is the CRC of the whole');
+  const decode = seen.filter(s => s[0] === 'decode').map(s => s[1]);
+  const inflate = seen.filter(s => s[0] === 'inflate').map(s => s[1]);
+  const up = a => a.every((v, i) => i === 0 || v >= a[i - 1]);
+  check(decode.length >= 1 && decode[decode.length - 1] === 1 && up(decode),
+        'the decode counter only goes up, to 1', JSON.stringify(decode.slice(0, 4)));
+  check(inflate.length >= 2 && inflate[inflate.length - 1] === 1 && up(inflate),
+        'and so does the inflate counter', `${inflate.length} steps`);
+  check(seen.findIndex(s => s[0] === 'inflate') > seen.map(s => s[0]).lastIndexOf('decode'),
+        'decoding is reported before inflating, never after');
+  let kind = null;
+  try { await V.inflate('not base64 at all!!', 10, () => {}); } catch (e) { kind = e && e.kind; }
+  check(kind === 'unpack', 'text that is not a payload is reported as damage, not as old',
+        String(kind));
+  console.log(failures ? `${failures} FAILED` : 'all passed');
+  process.exit(failures ? 1 : 0);
+})();

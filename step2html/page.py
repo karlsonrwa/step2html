@@ -16,6 +16,7 @@ from .meta import tool_version
 # Everything the page says, in one place. Change the language here.
 TEXT = {
     "stats": "{parts} parts · {faces} faces · {triangles} triangles",
+    "opening": "Opening the model…",
     "old_browser": "This browser is too old: no DecompressionStream. "
                    "Needs Chrome/Edge 103+, Firefox 113+ or Safari 16.4+.",
     "no_webgl": "WebGL2 is not available in this browser.",
@@ -105,6 +106,7 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
     subs = {
         "__TITLE__": html.escape(title),
         "__STATS__": html.escape(stat_line),
+        "__L_OPENING__": html.escape(TEXT["opening"]),
         "__OLD_BROWSER__": js_escape(TEXT["old_browser"]),
         "__NO_WEBGL__": js_escape(TEXT["no_webgl"]),
         "__UNPACK_FAILED__": js_escape(TEXT["unpack_failed"]),
