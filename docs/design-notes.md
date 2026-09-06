@@ -207,3 +207,15 @@ layout every paste would happen twice. Measured rather than assumed:
 `tests/test_editing.py` switches the layout for its own thread and presses the
 key by keycode - the "cannot be tested" that stood in the way was as wrong as
 "no display" had been.
+
+**The mesh export is checked face by face, not trusted by order.**
+`RWGltf_CafWriter` hands the triangulations back as one primitive per face,
+and on every board tried they come in exactly the order `faces()` walks them
+- so the obvious code takes the k-th primitive for the k-th face and is done.
+It would be right until a document arranged its shapes differently, and then
+it would put one face's triangles under another face's colour and placement
+with nothing to say so. So `tessellate` asks three cheap questions of each
+primitive before using it - the counts, the first node's place, the first
+triangle's winding - and walks the face node by node when any answer is no,
+with a line in the log. On 6,614 faces the questions cost under a tenth of a
+second; the alternative is a silently wrong picture.

@@ -113,13 +113,15 @@ def _deflection(opts: Options, parts) -> float:
 
 def one_build(quality: float, parts, colour_of, base_linear: float,
               base_angle: float, repair: bool, phaser: Phaser, title: str,
-              source: str, log) -> Sample:
+              source: str, log, doc=None, workdir=None) -> Sample:
     """The whole page at a quality multiplier. 1.0 is the plain automatic
     mesh; 2.0 halves both deflections, and so on.
 
     Everything it needs comes in by name. It used to be a closure over a
     dozen variables of convert(), which is the shape of thing that cannot be
-    read on its own, let alone tested.
+    read on its own, let alone tested. *doc* is the XCAF document the parts
+    came from, which lets tessellate take the mesh from OCCT in one piece
+    (gltf.py); *workdir* is where that export may be written.
     """
     phaser.next_build()
     lin = max(5.0e-4, base_linear / quality)
@@ -133,8 +135,9 @@ def one_build(quality: float, parts, colour_of, base_linear: float,
 
     phaser.phase(1)
     pos, nrm, col, idx, epos, eidx, st = tessellate(
-        prepared, colour_of, linear=lin, angular=ang, tick=phaser.tick)
-    if not pos:
+        prepared, colour_of, linear=lin, angular=ang, tick=phaser.tick,
+        doc=doc, log=log, workdir=workdir)
+    if len(pos) == 0:
         raise ConvertError(f"{source} tessellated to nothing - no faces?")
 
     phaser.phase(3)
@@ -196,7 +199,8 @@ def convert(opts: Options, log=None, progress=None) -> Report:
 
     def build(quality: float) -> Sample:
         return one_build(quality, parts, colour_of, base_linear, opts.angle,
-                         opts.repair, phaser, title, step.name, log)
+                         opts.repair, phaser, title, step.name, log,
+                         doc=doc, workdir=out.parent)
 
     found = search(build, budget, log=log)
     kept = found.best.payload

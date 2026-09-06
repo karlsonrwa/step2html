@@ -30,6 +30,9 @@ try:
     from OCP.GCPnts import GCPnts_TangentialDeflection
     from OCP.GeomAbs import GeomAbs_CurveType
     from OCP.IFSelect import IFSelect_ReturnStatus
+    from OCP.Message import Message_ProgressRange
+    from OCP.RWGltf import RWGltf_CafWriter
+    from OCP.RWMesh import RWMesh_CoordinateSystem
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib
     from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
@@ -40,6 +43,7 @@ try:
     from OCP.ShapeUpgrade import ShapeUpgrade_ShapeDivideClosed
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+    from OCP.TColStd import TColStd_IndexedDataMapOfStringString
     from OCP.TDataStd import TDataStd_Name
     from OCP.TDF import TDF_Label, TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
@@ -62,6 +66,8 @@ except ImportError as exc:  # pragma: no cover - environment problem, not logic
 __all__ = [
     "BRep_Tool", "BRepAdaptor_Curve", "BRepMesh_IncrementalMesh",
     "GCPnts_TangentialDeflection", "GeomAbs_CurveType", "IFSelect_ReturnStatus",
+    "Message_ProgressRange", "RWGltf_CafWriter", "RWMesh_CoordinateSystem",
+    "TColStd_IndexedDataMapOfStringString",
     "Bnd_Box", "BRepBndLib", "BRepBuilderAPI_Copy", "BRepGProp", "GProp_GProps",
     "BRepTools", "Quantity_Color", "ShapeUpgrade_ShapeDivideClosed",
     "STEPCAFControl_Reader", "TCollection_AsciiString",

@@ -255,6 +255,11 @@ def main():
         # transposed matrix. Tied to the OCCT that meshed it - a new OCCT may
         # mesh differently, and then the file is regenerated on purpose:
         #     python tests/test_page.py --golden
+        # Regenerated once for 0.13.0 (6 Sep 2026), when the mesh started to
+        # come from OCCT's glTF export: the positions are float32 there, so
+        # every coordinate moved by up to a float32 rounding (5e-8 mm on this
+        # fixture) and nothing else - the counts are the same, test_model
+        # compares the export against the node walk, and this pins it since.
         golden_path = Path(__file__).resolve().parent / "golden.json"
         got = {"crc": crc, "raw": raw, "counts": [nv, ni, nev, nei, nfa, ncr]}
         if "--golden" in sys.argv or not golden_path.is_file():

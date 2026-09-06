@@ -209,6 +209,26 @@ the document and would need writing separately or keeping the per-node path
 for themselves; and the tool gains a file written and read back per build.
 Worth a branch when a big board is the daily case; not a two-line edit.
 
+**Built, on the branch `gltf-mesh`, as 0.13.0.** `gltf.py` writes the
+document through `RWGltf_CafWriter` (millimetres, Z up) to a file beside the
+result and reads the primitives back with numpy; `tessellate` walks the faces
+as before but takes each face's vertices and triangles from the export once
+three checks pass - the node and triangle counts, the first node within a
+float32 of the primitive's first position, and the first non-degenerate
+triangle's winding, which says whether the writer already turned a REVERSED
+face over (it does) so that the rule reversed-XOR-mirrored is applied once
+and not twice. A face that fails, a patch (a copy outside the document), or
+the whole board when the writer declines, is walked node by node as in
+0.12.1, and the build log says so. Measured on Cadence_Demo against 0.12.1
+on the same meshed parts: all 6,614 faces from the export, no warnings;
+positions within 7.6e-6 mm, colours, indices, face table and edge indices
+identical, normals within 0.0083 (they are computed from the rounded
+positions); **`tessellate` 17.5 s → 12.7 s**, of which `collect_edges` is
+still 7.2 s - the export replaced the face loop, as predicted, and nothing
+else. The fixture's golden payload was regenerated once for this, with the
+reason in `tests/test_page.py`; `tests/test_model.py` now compares the
+export against the node walk on every run.
+
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
 last one 1,492,124 triangles, three times the first. The STEP is read once,

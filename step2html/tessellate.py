@@ -4,6 +4,15 @@ triangulation; circles for a measurement to snap to.
 The parts must already be meshed - repair_parts or mesh_parts does that -
 and the colour of a shape is asked of colour_of(shape), which answers an
 sRGB triple or None (see xcaf.colour_lookup). Nothing here imports XCAF.
+
+Two ways to the same arrays. Given the document, the mesh comes from OCCT
+in one piece - gltf.py writes it and numpy reads it - and every face is
+checked against the export before its primitive is used: the node count,
+the first node's place, the first triangle's winding. A face the check
+refuses, a patched face (which is a copy outside the document), or the
+whole board when there is no document or the writer declines, is walked
+node by node with the same arithmetic. Either way the world coordinates are
+one (N, 3) array, and normals, edges and the payload are computed from it.
 """
 from __future__ import annotations
 
@@ -13,17 +22,29 @@ from ._occt import (BRep_Tool, BRepAdaptor_Curve, GCPnts_TangentialDeflection,
                     GeomAbs_CurveType, TopAbs_EDGE, TopAbs_Orientation,
                     TopAbs_SOLID, TopExp_Explorer, TopLoc_Location, TopoDS,
                     TopTools_IndexedMapOfShape)
+from .gltf import export_mesh
 from .meshing import faces
 
 
-def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
-    """-> (positions, normals, colours, indices, stats).
+def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None,
+               doc=None, log=None, workdir=None):
+    """-> (positions, normals, colours, indices, edge positions, edge
+    indices, stats).
 
-    Positions, colours and indices are flat lists; the normals come back as a
-    flat numpy array of float64, three per vertex, from vertex_normals below.
+    Positions are a flat float64 array, three per vertex, in world
+    coordinates; normals likewise, from vertex_normals; colours a flat list of
+    sRGB bytes; indices a flat int64 array, three per triangle.
 
     Normals are averaged per FACE, so a bend comes out smooth and the edge
     between two faces stays sharp.
+
+    *doc* is the XCAF document the parts came from. With it the mesh is
+    taken from OCCT's own glTF export (gltf.py) face by face, each face
+    checked before its primitive is used - see _lined_up - and walked node
+    by node when the check fails; without it every face is walked node by
+    node. *log* takes a line when the export and the faces disagree, so a
+    slow build says why it was slow. *workdir* is where the export may be
+    written.
 
     **The parts must already be meshed.** This reads the triangulation that is
     there and does not make it, and *linear* and *angular* are here for the
@@ -34,10 +55,12 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     board, because that call re-meshes rather than noticing the triangulation
     already carries the deflection asked for.
     """
-    pos: list[float] = []
+    chunks_pos: list[np.ndarray] = []      # (n, 3) world coordinates per face
+    chunks_idx: list[np.ndarray] = []      # (m, 3) vertex indices per face
+    nverts = ntris = 0
     col: list[int] = []
-    idx: list[int] = []
     faces_seen = 0
+    from_export = 0
     # Where each face's triangles start, in triangles. They are emitted one
     # face after another and never interleave, so a start index per face is
     # the whole of what "which face is this triangle on" needs - 13 kB on a
@@ -50,14 +73,21 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     # second time.
     bases: list[int | None] = []
     tick = tick or (lambda _d, _t, _w: None)
+    log = log or (lambda _m: None)
     # Counted up front so the bar means something: a real board is one part
     # with 900 faces, and per-part progress would sit still for the whole of
     # it. Per face it moves.
     total_faces = sum(len(faces(sh)) + sum(len(faces(pc)) for pc, _c in pt)
                       for _n, _r, sh, _l, pt in parts) or 1
 
-    for _name, part_rgb, shape, part_loc, patches in parts:
+    exported = export_mesh(doc, workdir) if doc is not None else None
+    if doc is not None and exported is None:
+        log("warning: OCCT declined to export the mesh; tessellating node by node")
+    instances = iter(exported) if exported is not None else None
+
+    for name, part_rgb, shape, part_loc, patches in parts:
         place = part_loc.Transformation()
+        place12 = _twelve(place)
         # A mirrored placement reverses the winding of every triangle in it.
         mirrored = place.IsNegative()
         # The colour of the SOLID each face belongs to, which is a level of
@@ -78,11 +108,18 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
             for f in faces(solid):
                 solid_rgb[by_solid.Add(f)] = rgb
 
+        # This part's primitives from the export, consumed in face order.
+        # The patches are copies the document has never seen, so they are
+        # walked node by node whatever the export holds.
+        prims = next(instances, None) if instances is not None else None
+        prim_at = 0
+        own_faces = own_from_export = 0
+
         # The part's own faces, then any patched face carried beside it.
-        jobs = [(f, None) for f in faces(shape)]
+        jobs = [(f, None, True) for f in faces(shape)]
         for piece, patch_rgb in patches:
-            jobs += [(f, patch_rgb) for f in faces(piece)]
-        for face, forced in jobs:
+            jobs += [(f, patch_rgb, False) for f in faces(piece)]
+        for face, forced, own in jobs:
             if faces_seen % 25 == 0:
                 tick(faces_seen, total_faces, "tessellating")
             loc = TopLoc_Location()
@@ -91,12 +128,11 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
                 bases.append(None)
                 continue
             faces_seen += 1
+            own_faces += own
             # Where this face's triangles begin. Recorded here, before any of
             # them are emitted, because the whole point is that they are
             # contiguous - one number per face instead of one per triangle.
-            face_starts.append(len(idx) // 3)
-            # node -> face frame -> part frame -> world, composed once
-            trsf = place.Multiplied(loc.Transformation())
+            face_starts.append(ntris)
             flipped = (face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED)
             if mirrored:
                 flipped = not flipped
@@ -107,42 +143,40 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
                    or solid_rgb.get(by_solid.FindIndex(face))
                    or part_rgb)
 
-            base = len(pos) // 3
+            base = nverts
             bases.append(base)
-            nb_nodes = tri.NbNodes()
-            # The transform done here, from the twelve numbers of the
-            # gp_Trsf, and X, Y, Z read once per node. What a node costs is
-            # the call into OCP, not the arithmetic: on a 525k-node board
-            # this loop went from 8.7 s through gp_Pnt.Transformed with the
-            # coordinates read twice to 5.3 s like this, with every one of
-            # the 1.57 million doubles bit-identical to OCCT's own - the
-            # expression below is the one gp_Trsf evaluates, in its order
-            # (docs/performance.md).
-            (a11, a12, a13, t1), (a21, a22, a23, t2), (a31, a32, a33, t3) = (
-                [trsf.Value(r, c) for c in (1, 2, 3, 4)] for r in (1, 2, 3))
-            node = tri.Node
-            for i in range(1, nb_nodes + 1):
-                p = node(i)
-                x, y, z = p.X(), p.Y(), p.Z()
-                pos.extend((a11 * x + a12 * y + a13 * z + t1,
-                            a21 * x + a22 * y + a23 * z + t2,
-                            a31 * x + a32 * y + a33 * z + t3))
-            col.extend(tuple(rgb) * nb_nodes)
+            arrays = None
+            if own and prims is not None and prim_at < len(prims):
+                positions, triangles = prims[prim_at]
+                wound = _lined_up(tri, _twelve(loc.Transformation()),
+                                  positions, triangles, flipped)
+                if wound is not None:
+                    prim_at += 1
+                    own_from_export += 1
+                    # The primitive is in the part's frame, float32; the
+                    # placement goes on in double, in the order gp_Trsf
+                    # evaluates it, the same as the node walk below.
+                    arrays = (_placed(place12, positions.astype(np.float64)), wound)
+            if arrays is None:
+                # node -> face frame -> part frame -> world, composed once
+                arrays = face_arrays(tri, _twelve(place.Multiplied(loc.Transformation())),
+                                     flipped)
+            points, triangles = arrays
+            chunks_pos.append(points)
+            chunks_idx.append(triangles + base)
+            nverts += len(points)
+            ntris += len(triangles)
+            col.extend(tuple(rgb) * len(points))
 
-            # A reversed face, or a mirrored placement, turns every triangle
-            # over; both together turn it back. Decided once per face, not
-            # once per triangle.
-            triangle = tri.Triangle
-            if flipped:
-                for i in range(1, tri.NbTriangles() + 1):
-                    a, b, c = triangle(i).Get()
-                    idx.extend((base + a - 1, base + c - 1, base + b - 1))
-            else:
-                for i in range(1, tri.NbTriangles() + 1):
-                    a, b, c = triangle(i).Get()
-                    idx.extend((base + a - 1, base + b - 1, base + c - 1))
+        from_export += own_from_export
+        if prims is not None and own_from_export < own_faces:
+            log(f"warning: the mesh export did not line up with {name}: "
+                f"{own_faces - own_from_export} of {own_faces} face(s) taken node by node")
 
-    world = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+    world = (np.concatenate(chunks_pos) if chunks_pos
+             else np.zeros((0, 3), dtype=np.float64))
+    idx = (np.concatenate(chunks_idx).ravel() if chunks_idx
+           else np.zeros(0, dtype=np.int64))
     nrm = vertex_normals(world, idx)
 
     epos, eidx, from_mesh, from_curve, circles = collect_edges(
@@ -151,7 +185,8 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     stats = {
         "parts": len(parts),
         "faces": faces_seen,
-        "vertices": len(pos) // 3,
+        "faces_from_export": from_export,
+        "vertices": len(world),
         "triangles": len(idx) // 3,
         "edges": len(eidx) // 2,
         "edges_from_mesh": from_mesh,
@@ -159,7 +194,100 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
         "face_starts": face_starts,
         "circles": circles,
     }
-    return pos, nrm, col, idx, epos, eidx, stats
+    return world.ravel(), nrm, col, idx, epos, eidx, stats
+
+
+def _twelve(trsf):
+    """A gp_Trsf as its twelve numbers: three rows of a rotation-and-scale
+    and a translation, row by row - what _placed and face_arrays apply."""
+    return tuple(trsf.Value(r, c) for r in (1, 2, 3) for c in (1, 2, 3, 4))
+
+
+def _placed(m, points):
+    """*points* (n, 3) float64 through the transform *m* (see _twelve), each
+    coordinate as a11*x + a12*y + a13*z + t1 in that order - the expression
+    gp_Trsf evaluates, and the one face_arrays writes out per node, so the
+    two paths agree to the last bit on the same input."""
+    a11, a12, a13, t1, a21, a22, a23, t2, a31, a32, a33, t3 = m
+    x, y, z = points[:, 0], points[:, 1], points[:, 2]
+    return np.stack((a11 * x + a12 * y + a13 * z + t1,
+                     a21 * x + a22 * y + a23 * z + t2,
+                     a31 * x + a32 * y + a33 * z + t3), axis=1)
+
+
+def face_arrays(tri, m, flipped):
+    """One face node by node: -> (points (n, 3) float64 in world
+    coordinates, triangles (m, 3) int64 of local vertex numbers).
+
+    The transform done here, from the twelve numbers of the gp_Trsf, and X,
+    Y, Z read once per node. What a node costs is the call into OCP, not the
+    arithmetic: on a 525k-node board this loop went from 8.7 s through
+    gp_Pnt.Transformed with the coordinates read twice to 5.3 s like this,
+    with every one of the 1.57 million doubles bit-identical to OCCT's own -
+    the expression below is the one gp_Trsf evaluates, in its order
+    (docs/performance.md). Since 0.13.0 this is the road for the patches and
+    for any face the export does not line up with; the rest come from
+    gltf.py, ten times cheaper.
+    """
+    a11, a12, a13, t1, a21, a22, a23, t2, a31, a32, a33, t3 = m
+    node = tri.Node
+    pts = []
+    for i in range(1, tri.NbNodes() + 1):
+        p = node(i)
+        x, y, z = p.X(), p.Y(), p.Z()
+        pts.append((a11 * x + a12 * y + a13 * z + t1,
+                    a21 * x + a22 * y + a23 * z + t2,
+                    a31 * x + a32 * y + a33 * z + t3))
+    points = np.array(pts, dtype=np.float64).reshape(-1, 3)
+    # A reversed face, or a mirrored placement, turns every triangle over;
+    # both together turn it back. Decided once per face, not per triangle.
+    triangle = tri.Triangle
+    corners = (triangle(i).Get() for i in range(1, tri.NbTriangles() + 1))
+    if flipped:
+        tris = [(a - 1, c - 1, b - 1) for a, b, c in corners]
+    else:
+        tris = [(a - 1, b - 1, c - 1) for a, b, c in corners]
+    return points, np.array(tris, dtype=np.int64).reshape(-1, 3)
+
+
+def _lined_up(tri, floc12, positions, triangles, flipped):
+    """Is this primitive this face? -> its triangles wound our way, or None.
+
+    Three checks, each cheap and each one a real file could fail: the node
+    and triangle counts; the first node, transformed by the face's own
+    location into the part's frame, within a float32 of the primitive's first
+    position; and the first non-degenerate triangle, which says whether the
+    writer already turned the face over (it does for a REVERSED face, and
+    not for a mirrored placement, which lives in the glTF node instead) -
+    so the primitive's winding is corrected to the rule face_arrays follows,
+    reversed XOR mirrored, and never flipped twice.
+    """
+    n, m = tri.NbNodes(), tri.NbTriangles()
+    if len(positions) != n or len(triangles) != m:
+        return None
+    a11, a12, a13, t1, a21, a22, a23, t2, a31, a32, a33, t3 = floc12
+    p = tri.Node(1)
+    x, y, z = p.X(), p.Y(), p.Z()
+    want = (a11 * x + a12 * y + a13 * z + t1,
+            a21 * x + a22 * y + a23 * z + t2,
+            a31 * x + a32 * y + a33 * z + t3)
+    for w, g in zip(want, positions[0]):
+        if abs(w - float(g)) > 1e-3 + 1e-6 * abs(w):
+            return None
+    writer_flipped = False
+    for i in range(1, min(m, 8) + 1):
+        a, b, c = tri.Triangle(i).Get()
+        if a == b or b == c or a == c:
+            continue
+        got = (int(triangles[i - 1, 0]), int(triangles[i - 1, 1]), int(triangles[i - 1, 2]))
+        if got == (a - 1, b - 1, c - 1):
+            writer_flipped = False
+        elif got == (a - 1, c - 1, b - 1):
+            writer_flipped = True
+        else:
+            return None
+        break
+    return triangles if writer_flipped == flipped else triangles[:, [0, 2, 1]]
 
 
 def vertex_normals(pos, idx):

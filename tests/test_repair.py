@@ -48,7 +48,7 @@ def build(step, repair):
             tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
             signature.append(tri.NbTriangles() if tri is not None else 0)
     pos, nrm, col, idx, epos, eidx, stats = tessellate(
-        parts, colour_of, linear=linear, angular=ANGULAR)
+        parts, colour_of, linear=linear, angular=ANGULAR, doc=doc)
     return signature, stats, left, len(eidx) // 2, len(idx) // 3
 
 
@@ -114,8 +114,8 @@ def main():
         unmeshed = [(n, c, sh, l, []) for n, c, sh, l in raw_parts]
         pos0, _n0, _c0, idx0, _e0, _ei0, _st0 = tessellate(
             unmeshed, colour_lookup(ct0), linear=auto_deflection(raw_parts),
-            angular=ANGULAR)
-        check(not pos0 and not idx0,
+            angular=ANGULAR, doc=doc0)
+        check(len(pos0) == 0 and len(idx0) == 0,
               "tessellate reads a mesh, it does not make one",
               f"{len(pos0) // 3} vertices from unmeshed parts")
 

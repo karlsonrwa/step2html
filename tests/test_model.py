@@ -11,6 +11,8 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
+
 from harness import ANGULAR, check, run
 from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_B, RIM,
                       coloured_assembly)
@@ -35,10 +37,38 @@ def main():
         angular = ANGULAR
         parts, _rescued, left = repair_parts(
             parts, colour_of, linear, angular, lambda _m: None)
+        warnings = []
         pos, nrm, col, idx, epos, eidx, stats = tessellate(
-            parts, colour_of, linear=linear, angular=angular)
+            parts, colour_of, linear=linear, angular=angular, doc=doc,
+            log=warnings.append, workdir=tmp)
 
         seen = Counter(tuple(col[i:i + 3]) for i in range(0, len(col), 3))
+
+        # ---- the export lines up with the node walk ----------------------- #
+        # The mesh comes from OCCT's own glTF export, face by face, and each
+        # face is checked before its primitive is used. On this fixture every
+        # face must pass, and what comes out must be what walking the nodes
+        # gives: the same vertices to a float32, the same triangles, colours
+        # and face table exactly, the same edges.
+        check(stats["faces_from_export"] == stats["faces"] and not warnings,
+              "every face came from the export, none fell back to the nodes",
+              f"{stats['faces_from_export']} of {stats['faces']}; {warnings}")
+        w_pos, w_nrm, w_col, w_idx, w_epos, w_eidx, w_stats = tessellate(
+            parts, colour_of, linear=linear, angular=angular)
+        off = float(np.abs(np.asarray(pos) - np.asarray(w_pos)).max()) if len(pos) else 0.0
+        check(len(pos) == len(w_pos) and off < 1e-4,
+              "the exported vertices are the walked vertices to a float32",
+              f"{len(pos) // 3} vs {len(w_pos) // 3} vertices, worst {off:.3g} mm")
+        check(list(idx) == list(w_idx) and list(col) == list(w_col)
+              and stats["face_starts"] == w_stats["face_starts"],
+              "the same triangles, colours and face table exactly")
+        e_off = float(np.abs(np.asarray(epos) - np.asarray(w_epos)).max()) if len(epos) else 0.0
+        check(list(eidx) == list(w_eidx) and e_off < 1e-4,
+              "the same edges, segment for segment", f"worst {e_off:.3g} mm")
+        n_off = float(np.abs(np.asarray(nrm) - np.asarray(w_nrm)).max()) if len(nrm) else 0.0
+        check(n_off < 1e-3, "and normals that agree to a thousandth",
+              f"worst component off by {n_off:.3g}")
+        check(not list(Path(tmp).glob("*.glb")), "the export file is gone afterwards")
 
         # ---- colour ------------------------------------------------------ #
         check(BODY in seen, "the part colour survives",
