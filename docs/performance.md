@@ -132,3 +132,14 @@ one call per element), and the 8 s of normal arithmetic is plain Python
 that only numpy would change materially, which the tool does not carry by
 design. A realistic floor for this board without numpy is therefore around
 20 s, not 3.
+
+**And numpy itself, measured rather than assumed** (same board, on the
+dumped payload): the normal accumulation and normalisation 2.51 s → 0.61 s,
+the normals-to-bytes pass 0.85 s → 0.18 s, the centring in `pack` 0.22 s →
+0.14 s — about 2.7 s of a 62 s build, with the bytes identical after
+rounding (the doubles differ by 2e-16 from summation order). It cannot reach
+the 25 s of per-node OCP calls, because those are what put the numbers into
+an array in the first place. numpy is on a machine with cadquery-ocp anyway —
+not by anyone's choice: cadquery-ocp requires vtk, vtk matplotlib, matplotlib
+numpy — but it is 33 MB on disk, the frozen build excludes it on purpose, and
+the two pure-Python edits above are worth more than it is.
