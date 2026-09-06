@@ -143,3 +143,10 @@ an array in the first place. numpy is on a machine with cadquery-ocp anyway —
 not by anyone's choice: cadquery-ocp requires vtk, vtk matplotlib, matplotlib
 numpy — but it is 33 MB on disk, the frozen build excludes it on purpose, and
 the two pure-Python edits above are worth more than it is.
+
+**The whole conversion, with the automatic budget:** 225 s, three builds —
+8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
+last one 1,492,124 triangles, three times the first. The STEP is read once,
+22 s; the rest is three rounds of meshing, tessellating and packing, each
+larger than the last. So on a big board the multiplier is the search, as it
+was on the small one: `--max-bytes none` is one build and about a minute.
