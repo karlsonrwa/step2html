@@ -168,6 +168,47 @@ time, the payload end to end; `tessellate` 21.0 s → 17.5 s. The clamp in
 the normals-to-bytes pass, 0.3 s in the Python loop, is 1.6 ms of 22.8 under
 numpy, so it stays as the safety net it is.
 
+### The bulk path, measured (6 Sep 2026, not built)
+
+What is left of `tessellate` at 0.12.1 on this board: **17.8 s = the face
+loop 10.2 s + the normals 0.4 s + `collect_edges` 7.2 s**. The face loop is
+now nothing but the call per node - `Node`, `X`, `Y`, `Z`, `Triangle`,
+`Get` - and the one way past that is to have OCCT hand the mesh over whole.
+It can: `RWGltf_CafWriter` writes the document's triangulations as binary
+glTF, and numpy reads the buffers straight from the file.
+
+| | |
+|---|---|
+| `RWGltf_CafWriter.Perform`, one primitive per face | 1.6 s (18.6 MB on disk) |
+| the same, `SetParallel(True)` | 1.6 s |
+| the same, faces merged per part | 1.1 s |
+| reading every position and index array with numpy | 0.2 s |
+| binary STL of the placed compound, for comparison | 0.1 s to write, 0.02 s to read - but a triangle soup, no faces, no colours |
+
+And what comes out, checked face by face against our own mesh with the
+converter set to millimetres and Z up on both sides: **6,614 primitives in
+exactly our face order with exactly our vertex counts** (524,738 vertices,
+513,407 triangles), positions within 7.6e-6 mm of our doubles - float32,
+which is what glTF stores - and the colour of every one of the 6,614 faces
+the same as ours after linear→sRGB, from 7 materials. The writer's normals
+are the surface's true normals, a median 1.25° and up to 180° from our
+facet-averaged ones (the reversed faces), so shading would change - unless
+the normals are computed as now, from the positions, which costs 0.4 s.
+
+So the redesign would be: mesh as now, write glTF, read positions, indices
+and the face table with numpy, `vertex_normals` on them, `collect_edges` as
+now over the glTF positions, `pack`. Per build on this board that is about
+**9.4 s instead of 17.8 s** for the tessellation and **39 s instead of
+47 s** for the build - reading the STEP (22 s) and meshing (6 s) do not move,
+and `collect_edges` (7.2 s: `Value` on 366k polygon nodes, one
+`BRepAdaptor_Curve` per edge for the circles, and its Python) is untouched by
+it. Three things it costs: the payload changes at the level of a float32 ulp,
+because glTF rounds the world coordinates before the centring does - the
+golden would be regenerated on purpose, once; the repaired patches are not in
+the document and would need writing separately or keeping the per-node path
+for themselves; and the tool gains a file written and read back per build.
+Worth a branch when a big board is the daily case; not a two-line edit.
+
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
 last one 1,492,124 triangles, three times the first. The STEP is read once,
