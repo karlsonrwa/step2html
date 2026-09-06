@@ -98,3 +98,37 @@ next time the file is open, not worth a release. The two heavier things:
 
 And the larger truth of this board: tessellation is half the build. The
 Python loop over 525k nodes is where a big board spends its time, not `pack`.
+
+### Where the tessellation's 30 s go (same board, same day)
+
+29.5 s unprofiled: 19.0 s in the face and triangle loops, 10.6 s in
+`collect_edges`. Under cProfile (39 s with its overhead) the own time splits
+**24.7 s in OCP and built-in calls against 14.4 s of Python arithmetic** —
+the cost is the call per node, not the loop:
+
+| | calls | own time, profiled |
+|---|---|---|
+| `Poly_Triangulation.Node` | 890,977 | 3.6 s |
+| `gp_Pnt.Transformed` | 890,977 | 3.4 s |
+| `gp_Pnt.X` / `.Y` / `.Z` | 1,427,598 each | 7.7 s together |
+| `Poly_Triangulation.Triangle` + `.Get` | 513,407 each | 3.5 s |
+| `TColStd.Value` (edge polygons) | 366,239 | 1.0 s |
+| `note_circle`, one `BRepAdaptor_Curve` per edge | 50,586 | 2.2 s cumulative |
+| the Python of `tessellate` itself | | 8.3 s |
+| the Python of `collect_edges` itself | | 3.3 s |
+
+Measured, not estimated, on the node loop alone (8.72 s as shipped, best of
+three): reading `X()`, `Y()`, `Z()` once per node instead of twice gives
+6.71 s, and doing the affine transform in Python from the twelve numbers of
+the `gp_Trsf` instead of calling `Transformed` gives 5.27 s — with **every one
+of the 1,574,214 doubles bit-identical** to OCCT's own, so the payload does
+not change by a byte. That is 3.5 s of the 30, for two small edits. The next
+lever the profile points at, not yet measured: `collect_edges` transforms
+366k edge nodes that the face loop has just transformed — handing the
+per-face world coordinates across would save the `Node`, `Transformed` and
+`X/Y/Z` calls on each, of the order of 4 s. `Triangle(i).Get()` has no bulk
+alternative in the binding (`InternalTriangles`, `MapTriangleArray` are still
+one call per element), and the 8 s of normal arithmetic is plain Python
+that only numpy would change materially, which the tool does not carry by
+design. A realistic floor for this board without numpy is therefore around
+20 s, not 3.
