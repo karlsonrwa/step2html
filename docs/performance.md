@@ -227,7 +227,9 @@ positions); **`tessellate` 17.5 s → 12.7 s**, of which `collect_edges` is
 still 7.2 s - the export replaced the face loop, as predicted, and nothing
 else. The fixture's golden payload was regenerated once for this, with the
 reason in `tests/test_page.py`; `tests/test_model.py` now compares the
-export against the node walk on every run.
+export against the node walk on every run. The whole of one build,
+`--max-bytes none` from the command line on the same board: **51 s on
+master, 44 s on the branch**, wall clock.
 
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
