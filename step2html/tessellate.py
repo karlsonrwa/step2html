@@ -7,6 +7,8 @@ sRGB triple or None (see xcaf.colour_lookup). Nothing here imports XCAF.
 """
 from __future__ import annotations
 
+import numpy as np
+
 from ._occt import (BRep_Tool, BRepAdaptor_Curve, GCPnts_TangentialDeflection,
                     GeomAbs_CurveType, TopAbs_EDGE, TopAbs_Orientation,
                     TopAbs_SOLID, TopExp_Explorer, TopLoc_Location, TopoDS,
@@ -16,6 +18,9 @@ from .meshing import faces
 
 def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     """-> (positions, normals, colours, indices, stats).
+
+    Positions, colours and indices are flat lists; the normals come back as a
+    flat numpy array of float64, three per vertex, from vertex_normals below.
 
     Normals are averaged per FACE, so a bend comes out smooth and the edge
     between two faces stays sharp.
@@ -30,7 +35,6 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
     already carries the deflection asked for.
     """
     pos: list[float] = []
-    nrm: list[float] = []
     col: list[int] = []
     idx: list[int] = []
     faces_seen = 0
@@ -97,40 +101,40 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
                    or part_rgb)
 
             base = len(pos) // 3
-            px = []
-            for i in range(1, tri.NbNodes() + 1):
-                p = tri.Node(i).Transformed(trsf)
-                px.append((p.X(), p.Y(), p.Z()))
-                pos.extend((p.X(), p.Y(), p.Z()))
-                nrm.extend((0.0, 0.0, 0.0))
-                col.extend(rgb)
+            nb_nodes = tri.NbNodes()
+            # The transform done here, from the twelve numbers of the
+            # gp_Trsf, and X, Y, Z read once per node. What a node costs is
+            # the call into OCP, not the arithmetic: on a 525k-node board
+            # this loop went from 8.7 s through gp_Pnt.Transformed with the
+            # coordinates read twice to 5.3 s like this, with every one of
+            # the 1.57 million doubles bit-identical to OCCT's own - the
+            # expression below is the one gp_Trsf evaluates, in its order
+            # (docs/performance.md).
+            (a11, a12, a13, t1), (a21, a22, a23, t2), (a31, a32, a33, t3) = (
+                [trsf.Value(r, c) for c in (1, 2, 3, 4)] for r in (1, 2, 3))
+            node = tri.Node
+            for i in range(1, nb_nodes + 1):
+                p = node(i)
+                x, y, z = p.X(), p.Y(), p.Z()
+                pos.extend((a11 * x + a12 * y + a13 * z + t1,
+                            a21 * x + a22 * y + a23 * z + t2,
+                            a31 * x + a32 * y + a33 * z + t3))
+            col.extend(tuple(rgb) * nb_nodes)
 
-            for i in range(1, tri.NbTriangles() + 1):
-                a, b, c = tri.Triangle(i).Get()
-                if flipped:
-                    b, c = c, b
-                ax, ay, az = px[a - 1]
-                bx, by, bz = px[b - 1]
-                cx, cy, cz = px[c - 1]
-                ux, uy, uz = bx - ax, by - ay, bz - az
-                vx, vy, vz = cx - ax, cy - ay, cz - az
-                fx = uy * vz - uz * vy
-                fy = uz * vx - ux * vz
-                fz = ux * vy - uy * vx
-                for k in (a, b, c):
-                    o = (base + k - 1) * 3
-                    nrm[o] += fx
-                    nrm[o + 1] += fy
-                    nrm[o + 2] += fz
-                idx.extend((base + a - 1, base + b - 1, base + c - 1))
+            # A reversed face, or a mirrored placement, turns every triangle
+            # over; both together turn it back. Decided once per face, not
+            # once per triangle.
+            triangle = tri.Triangle
+            if flipped:
+                for i in range(1, tri.NbTriangles() + 1):
+                    a, b, c = triangle(i).Get()
+                    idx.extend((base + a - 1, base + c - 1, base + b - 1))
+            else:
+                for i in range(1, tri.NbTriangles() + 1):
+                    a, b, c = triangle(i).Get()
+                    idx.extend((base + a - 1, base + b - 1, base + c - 1))
 
-    for i in range(0, len(nrm), 3):
-        x, y, z = nrm[i], nrm[i + 1], nrm[i + 2]
-        m = (x * x + y * y + z * z) ** 0.5
-        if m > 0:
-            nrm[i], nrm[i + 1], nrm[i + 2] = x / m, y / m, z / m
-        else:
-            nrm[i + 2] = 1.0
+    nrm = vertex_normals(pos, idx)
 
     epos, eidx, from_mesh, from_curve, circles = collect_edges(
         parts, linear, angular, tick=tick, total=total_faces)
@@ -147,6 +151,41 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None):
         "circles": circles,
     }
     return pos, nrm, col, idx, epos, eidx, stats
+
+
+def vertex_normals(pos, idx):
+    """A unit normal per vertex: the facet normals of every triangle that
+    meets there, summed and normalised. -> a flat float64 array, three per
+    vertex.
+
+    Faces never share vertices, so the sum only ever runs over one face and
+    the edge between two faces stays sharp while a bend comes out smooth. A
+    vertex no triangle touches points along +Z rather than nowhere.
+
+    numpy, in place of a Python loop over every triangle, and in the SAME
+    ORDER of additions as that loop: np.add.at applies its additions in the
+    order of the index array, and the index array here is the triangles as
+    emitted, corner by corner, which is exactly how the loop walked them. So
+    the sums are bit-identical, not merely close - measured on the 513k
+    triangles of a real board, and held by the golden payload
+    (docs/performance.md). 2.5 s -> 0.6 s there.
+    """
+    P = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+    I = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+    N = np.zeros_like(P)
+    if len(I):
+        A, B, C = P[I[:, 0]], P[I[:, 1]], P[I[:, 2]]
+        # b - a crossed with c - a: the same three products-and-differences
+        # the loop wrote out, so the same doubles.
+        F = np.cross(B - A, C - A)
+        np.add.at(N, I.ravel(), np.repeat(F, 3, axis=0))
+    x, y, z = N[:, 0], N[:, 1], N[:, 2]
+    m = np.sqrt(x * x + y * y + z * z)
+    flat = m == 0
+    m[flat] = 1.0
+    N /= m[:, None]
+    N[flat] = (0.0, 0.0, 1.0)
+    return N.ravel()
 
 
 def collect_edges(parts, linear, angular, tick=None, total=1):

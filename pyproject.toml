@@ -16,8 +16,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    # OCCT. The only dependency, and the reason a frozen build is large.
+    # OCCT, and the reason a frozen build is large.
     "cadquery-ocp>=7.7",
+    # The arrays behind the normals and the payload. It arrives with
+    # cadquery-ocp anyway - through vtk and matplotlib - but a transitive
+    # dependency is nobody's promise, so it is declared here.
+    "numpy>=1.20",
 ]
 
 [project.scripts]

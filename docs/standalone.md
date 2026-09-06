@@ -24,6 +24,11 @@ Measured the same way for both — the folder wins on every launch and costs
 nothing to send, because zip compresses the same bytes the one-file bootloader
 does. What one file buys is that there is nothing to unpack by hand.
 
+Those numbers are from 0.9.6. Since 0.12.0 the pipeline uses numpy (33 MB
+on disk unpacked), which the spec used to exclude and now carries; the build
+has not been redone since, so expect the bundle to be larger by some part of
+that.
+
 **Where the weight is**, and none of it is ours: `OCP.pyd` 94 MB, the OCCT DLLs
 it links against 65 MB, **VTK 135 MB**, Python and Tk about 12. VTK is not used
 here by a single line, and it still cannot go — measured, in two steps. Without

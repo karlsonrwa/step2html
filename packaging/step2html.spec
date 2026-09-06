@@ -19,9 +19,9 @@ HERE = os.path.dirname(os.path.abspath(SPEC))
 REPO = os.path.dirname(HERE)
 
 EXCLUDE = [
-    # The science stack, in case anything reaches for it. numpy comes with
-    # cadquery-ocp and nothing here touches it.
-    "numpy", "scipy", "matplotlib", "pandas", "PIL", "IPython",
+    # The science stack beyond numpy, in case anything reaches for it. numpy
+    # itself is used - tessellate and payload since 0.12.0 - and stays.
+    "scipy", "matplotlib", "pandas", "PIL", "IPython",
     # Build and test machinery.
     "pytest", "setuptools", "pip", "wheel", "pkg_resources",
 ]

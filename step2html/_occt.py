@@ -1,4 +1,5 @@
-"""Every OCP name the pipeline uses, imported once and behind one guard.
+"""Every OCP name the pipeline uses, imported once and behind one guard -
+and numpy behind a guard of its own, for the same reason.
 
 The guard names the interpreter that is running, because with several
 Pythons on a machine that is the whole question - and it says "cadquery-ocp"
@@ -6,11 +7,21 @@ in the words pip wants, since "OCP" alone means nothing to pip.
 
 Three modules use OCP - xcaf, meshing, tessellate - and each imports its
 names from here rather than from OCP directly, so a missing OCP is reported
-the same way whichever of them is reached first.
+the same way whichever of them is reached first. numpy is imported where it
+is used, tessellate and payload; the guard here runs first because meshing
+is imported before either, and it is the message that matters.
 """
 from __future__ import annotations
 
+import importlib.util
 import sys
+
+if importlib.util.find_spec("numpy") is None:  # pragma: no cover - environment problem, not logic
+    raise SystemExit(
+        f"No module named 'numpy'\n\nstep2html needs numpy, which cadquery-ocp "
+        f"brings with it, and the Python running this does not have it:\n  "
+        f"{sys.executable}\n\nInstall it there:\n  pip install numpy"
+    )
 
 try:
     from OCP.BRep import BRep_Tool

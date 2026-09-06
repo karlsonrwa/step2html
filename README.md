@@ -142,7 +142,7 @@ one corner of the board is a copy away.
 
 ## Installation
 
-Python 3.10 or newer, and one dependency. From the project folder:
+Python 3.10 or newer, and two dependencies. From the project folder:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -159,15 +159,16 @@ with — which is exactly how the window ends up unable to start. And the
 requirements file installs `.`, the current directory, so pip run from
 somewhere else looks for a project where you are standing and says so.
 
-The file lists no dependencies of its own. There is one, `cadquery-ocp`, and it
-is declared in `pyproject.toml`; a second copy would be a second list to keep in
-step. `-e .` makes pip read that one. Editable, so the folder you edit stays the
-folder that runs — and it puts `step2html` and `step2html-gui` on that Python's
-PATH, the second of which is a windowed entry point and so another way past the
-vanishing console described below.
+The file lists no dependencies of its own. There are two, `cadquery-ocp` and
+`numpy`, declared in `pyproject.toml`; a second copy would be a second list to
+keep in step. `-e .` makes pip read that one. Editable, so the folder you edit
+stays the folder that runs — and it puts `step2html` and `step2html-gui` on
+that Python's PATH, the second of which is a windowed entry point and so
+another way past the vanishing console described below.
 
-`cadquery-ocp` is OCCT. Nothing else is needed, and nothing else is used.
-Tested against 7.9.3 on Python 3.12 and 3.14.
+`cadquery-ocp` is OCCT. `numpy` does the array arithmetic of the normals and
+the payload, and arrives with `cadquery-ocp` anyway. Nothing else is needed,
+and nothing else is used. Tested against 7.9.3 on Python 3.12 and 3.14.
 
 ## The GUI
 
@@ -250,7 +251,7 @@ Pass `--max-bytes none` for a single build.
 | `step2html/gui/` | the window, `python -m step2html.gui`. `app.py` is the widgets and the wiring, and builds the same `Options` the CLI does; `job.py` is the child process and its channel, `logpane.py` the coloured log, `geometry.py` where the window goes, `settings.py` what it remembers, `editing.py` the right-click menu on a field and Ctrl+C/V/X/A under a keyboard layout that is not Latin - none of those five needs a window, and three are tested without one |
 | `step2html/worker.py` | `convert` in a child process. Nothing on the way in may build a `Tk()`: on Windows the child is spawned and re-imports the main module |
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
-| `requirements.txt` | `-e .`, so one command installs the one dependency that `pyproject.toml` declares |
+| `requirements.txt` | `-e .`, so one command installs the two dependencies that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
 | `tests/` | ten suites, `python tests/run_all.py`, twenty to thirty seconds; five of them - the budget search, the progress bar, window geometry, the child process and the viewer's pure modules under node - need no OCCT |
 | `docs/viewer-checklist.md` | what the tests cannot see: the gestures, run by hand on a real board after any change under `viewer/` |

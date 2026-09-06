@@ -13,6 +13,8 @@ import base64
 import struct
 import zlib
 
+import numpy as np
+
 MAGIC = b"S3DH"
 FORMAT_VERSION = 4
 # Count the letters against the arguments when touching this: 4s, then
@@ -22,58 +24,62 @@ HEADER_SIZE = struct.calcsize(HEADER)          # 48
 
 
 def pack(pos, nrm, col, idx, epos=(), eidx=(), face_starts=(), circles=()):
-    """-> (base64 payload, crc32, uncompressed length)."""
-    nv = len(pos) // 3
+    """-> (base64 payload, crc32, uncompressed length).
+
+    The arrays go through numpy: the centring, the float32 conversion, the
+    normals quantised to a byte and the indices to uint32 are each one
+    call over the whole array instead of a Python loop over every value.
+    The bytes are the ones struct.pack produced before - the float32
+    rounding is the same C cast, np.rint rounds half to even as round()
+    does - and the golden payload holds that (docs/performance.md, where
+    the 25 MB board measured 3.6 s -> 2.6 s for this).
+    """
+    P = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+    E = np.asarray(epos, dtype=np.float64).reshape(-1, 3)
+    nv = len(P)
     ni = len(idx)
-    nev = len(epos) // 3
-    nei = len(eidx)
+    nev = len(E)
     nfa = len(face_starts)
     ncr = len(circles)
-    cx = (min(pos[0::3]) + max(pos[0::3])) / 2
-    cy = (min(pos[1::3]) + max(pos[1::3])) / 2
-    cz = (min(pos[2::3]) + max(pos[2::3])) / 2
+    lo = P.min(axis=0) if nv else np.zeros(3)
+    hi = P.max(axis=0) if nv else np.zeros(3)
+    centre = (lo + hi) / 2
+    hx, hy, hz = (hi - lo) / 2
 
-    centred = []
-    r2 = 0.0
-    for i in range(nv):
-        x, y, z = pos[3 * i] - cx, pos[3 * i + 1] - cy, pos[3 * i + 2] - cz
-        centred.extend((x, y, z))
-        r2 = max(r2, x * x + y * y + z * z)
-    span = (r2 ** 0.5) or 1.0
+    centred = P - centre
+    r2 = ((centred[:, 0] * centred[:, 0] + centred[:, 1] * centred[:, 1]
+           + centred[:, 2] * centred[:, 2]).max() if nv else 0.0)
+    span = (float(r2) ** 0.5) or 1.0
 
-    # Edge points ride in the same frame as the surface points.
-    ecentred = []
-    for i in range(nev):
-        ecentred.extend((epos[3 * i] - cx, epos[3 * i + 1] - cy, epos[3 * i + 2] - cz))
-
-    hx = (max(pos[0::3]) - min(pos[0::3])) / 2
-    hy = (max(pos[1::3]) - min(pos[1::3])) / 2
-    hz = (max(pos[2::3]) - min(pos[2::3])) / 2
-
-    # Circle centres ride in the same centred frame as everything else; the
-    # axis is a direction and the radius a length, so neither moves.
+    # Edge points ride in the same frame as the surface points, and so do
+    # the circle centres; a circle's axis is a direction and its radius a
+    # length, so neither moves.
+    ecentred = E - centre
+    cx, cy, cz = centre
     flat_circles = []
     for cxc, cyc, czc, nx, ny, nz, r in circles:
         flat_circles.extend((cxc - cx, cyc - cy, czc - cz, nx, ny, nz, r))
 
-    body = bytearray()
     # Version 3 adds nfa and the face table; version 4 adds ncr and the
     # circles. Count the letters against the arguments when touching this:
     # 4s, then SEVEN integers, then four floats.
-    body += struct.pack(HEADER, MAGIC, FORMAT_VERSION, nv, ni, nev, nei,
-                        nfa, ncr, span, hx, hy, hz)
-    body += struct.pack(f"<{nv * 3}f", *centred)
-    body += bytes(max(0, min(255, int(round(v * 127)) + 128)) for v in nrm)
-    body += bytes(col)
-    body += struct.pack(f"<{ni}I", *idx)
-    body += struct.pack(f"<{nev * 3}f", *ecentred)
-    body += struct.pack(f"<{nei}I", *eidx)
-    body += struct.pack(f"<{nfa}I", *face_starts)
-    body += struct.pack(f"<{ncr * 7}f", *flat_circles)
+    body = b"".join((
+        struct.pack(HEADER, MAGIC, FORMAT_VERSION, nv, ni, nev, len(eidx),
+                    nfa, ncr, span, hx, hy, hz),
+        centred.astype("<f4").tobytes(),
+        np.clip(np.rint(np.asarray(nrm, dtype=np.float64) * 127) + 128,
+                0, 255).astype(np.uint8).tobytes(),
+        bytes(col),
+        np.asarray(idx, dtype="<u4").tobytes(),
+        ecentred.astype("<f4").tobytes(),
+        np.asarray(eidx, dtype="<u4").tobytes(),
+        np.asarray(face_starts, dtype="<u4").tobytes(),
+        np.asarray(flat_circles, dtype=np.float64).astype("<f4").tobytes(),
+    ))
 
-    crc = zlib.crc32(bytes(body)) & 0xFFFFFFFF
+    crc = zlib.crc32(body) & 0xFFFFFFFF
     comp = zlib.compressobj(9, zlib.DEFLATED, -15)   # raw deflate = deflate-raw
-    blob = comp.compress(bytes(body)) + comp.flush()
+    blob = comp.compress(body) + comp.flush()
     return base64.b64encode(blob).decode("ascii"), crc, len(body)
 
 

@@ -141,8 +141,22 @@ rounding (the doubles differ by 2e-16 from summation order). It cannot reach
 the 25 s of per-node OCP calls, because those are what put the numbers into
 an array in the first place. numpy is on a machine with cadquery-ocp anyway —
 not by anyone's choice: cadquery-ocp requires vtk, vtk matplotlib, matplotlib
-numpy — but it is 33 MB on disk, the frozen build excludes it on purpose, and
+numpy — but it is 33 MB on disk, the frozen build excluded it on purpose, and
 the two pure-Python edits above are worth more than it is.
+
+**Done, in 0.12.0** — both pure-Python edits in the node loop, and numpy for
+the vertex normals and for `pack`, since it is installed wherever
+cadquery-ocp is. Checked on this board against the shipped code, on the same
+meshed parts: positions, colours, indices, edges and the face table
+identical as Python doubles and lists; of the 1,574,214 normal components
+140 differ by one ulp (2.2e-16 — `sqrt` against `** 0.5`, evidently), which
+the byte quantisation absorbs, so **the payload is identical end to end**,
+base64, CRC and length, and identical to the body dumped from the shipped
+pipeline the day before. The golden payload of the fixture holds unchanged.
+Measured on the same run: `tessellate` 27.1 s → 20.6 s, `pack` 3.58 s →
+1.69 s. The normals keep their exact order of additions on purpose —
+`np.add.at` over the triangles as emitted, corner by corner — because the
+golden is the proof and a different summation order would have moved it.
 
 **The whole conversion, with the automatic budget:** 225 s, three builds —
 8.2 MB at 0.1271 mm, 18.6 MB at 0.055 mm, and 24.4 MB at 0.0416 mm kept, the
