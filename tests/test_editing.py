@@ -194,6 +194,26 @@ def main():
         app.job = None
         check(not app._frozen(), "and the fields thaw with the job")
 
+        # That was the function. This is the FIELD: attach() is handed the
+        # window's own _frozen, and a field wired without it would show the
+        # menu mid-build while the check above went on passing. The pop-up
+        # itself is replaced, so nothing appears and nothing grabs.
+        asked = []
+        real_show, editing.show_edit_menu = editing.show_edit_menu, (
+            lambda event, w, frozen: asked.append((w is field, frozen())))
+        try:
+            app.job = object()
+            field.event_generate("<Button-3>", x=5, y=5)
+            root.update()
+            app.job = None
+            field.event_generate("<Button-3>", x=5, y=5)
+            root.update()
+        finally:
+            editing.show_edit_menu = real_show
+        check(asked == [(True, True), (True, False)],
+              "the field's own right-click carries the window's frozen flag",
+              str(asked))
+
         print("\n[3] the keys themselves, with the layout really switched")
         if layouts is None:
             print("  skip  not Windows: the layout cannot be switched here")
@@ -243,9 +263,14 @@ def main():
             press(app.log_view, C)
             check("hello from the log" in clip.get(), "the log copies under the Russian layout",
                   clip.get().strip()[:40])
+            # Something the log does NOT already say: pasting what was just
+            # copied over the selection that was just made leaves the same
+            # text behind, so it cannot tell a refused paste from a real one.
+            clip.put("pasted over the record of the build")
             press(app.log_view, V)
             check(app.log_view.get("1.0", "end").strip() == "hello from the log",
-                  "and Ctrl+V leaves the read-only log alone")
+                  "and Ctrl+V leaves the read-only log alone",
+                  app.log_view.get("1.0", "end").strip()[:45])
 
             # And the Latin layout: once, not twice.
             check(layouts.use(ENGLISH), "the English layout is active",

@@ -8,6 +8,7 @@ promise is a lie and nobody would notice.
 from __future__ import annotations
 
 import base64
+import html
 import json
 import re
 import shutil
@@ -21,9 +22,13 @@ from pathlib import Path
 from harness import check, run
 from fixtures import coloured_assembly
 from step2html import __version__, cli, payload
+from step2html import meta as meta_module   # "meta" is a keyword argument here
 from step2html import page as page_module
 from step2html.convert import Options, convert
 from step2html.page import JS_ORDER, TEXT, build_page
+
+# The OCCT that meshes the fixture, as the golden is keyed on it.
+from OCP import __version__ as OCCT
 
 
 def main():
@@ -47,6 +52,17 @@ def main():
         shown = odd.split("<b>")[1].split("</b>")[0]
         check(shown == "__L_ON__ rev __L_DARK__",
               "substituted text is not scanned again", shown)
+        # The other half of "a title is user text": "R&D <rev 2>.step" is a
+        # legal file name, and every character of it has a meaning in
+        # markup. Nothing in the fixture's own title has, so dropping the
+        # escaping changed nothing in this suite until this check existed.
+        nasty = build_page('R&D <rev 2> "x"',
+                           {"parts": 1, "faces": 1, "triangles": 1},
+                           "AAAA", 1, 1, meta={"source": "x.step"})
+        shown = nasty.split("<b>")[1].split("</b>")[0]
+        check(shown == "R&amp;D &lt;rev 2&gt; &quot;x&quot;",
+              "and a title with markup in it is escaped, not passed through",
+              shown)
         check("<html lang=\"en\">" in page, "the page declares English")
         check(not re.search(r"[Ѐ-ӿ]", page),
               "no stray non-English text in the page")
@@ -181,6 +197,32 @@ def main():
         # ---- the file says what made it ------------------------------- #
         check(f'name="generator" content="step2html {__version__}'
               in page, "the head carries a generator tag with the version")
+        # The WHOLE stamp, not its first few characters. What says which
+        # build of the tool wrote a file is the commit beside the number and
+        # the +edits marker beside that, and a check on the prefix called it
+        # good with both of them gone. Git is asked here directly - a second
+        # opinion, not a copy of meta.py - and where git does not answer,
+        # nothing is claimed.
+        stamp = meta_module.tool_version()
+        check(f'name="generator" content="{html.escape("step2html " + stamp)}"'
+              in page, "and the whole of it, not merely the number", stamp)
+        where = str(Path(page_module.__file__).resolve().parent)
+        head = subprocess.run(["git", "-C", where, "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True)
+        if head.returncode == 0:
+            commit = head.stdout.strip()
+            check(commit and commit in stamp,
+                  "the stamp names the commit it was built from",
+                  f"git says {commit}, the page says {stamp}")
+            dirty = subprocess.run(["git", "-C", where, "status", "--porcelain"],
+                                   capture_output=True, text=True)
+            edited = dirty.returncode == 0 and bool(dirty.stdout.strip())
+            check(("+edits" in stamp) == edited,
+                  "and says so when the tree it was built from was edited",
+                  f"git: {'edited' if edited else 'clean'}; stamp: {stamp}")
+        else:
+            print("  note  git does not answer here; the commit and the "
+                  "+edits marker were not checked")
         check(f"step2html {__version__}" in page.split("<body")[1],
               "and the version is visible at the foot of the help")
         for row in (TEXT["about_source"], TEXT["about_mesh"],
@@ -236,9 +278,15 @@ def main():
         starts = struct.unpack(f"<{nfa}I",
                               body[len(body) - ncr * 28 - nfa * 4:
                                    len(body) - ncr * 28])
-        check(nfa > 0 and all(a <= b for a, b in zip(starts, starts[1:]))
+        # Strictly ascending, and starting at nought. "Ascends" alone is
+        # true of a table of noughts, which is what a face table severed
+        # from its counter is - and every face here has triangles, or the
+        # "every face meshed" check in test_model would have said so.
+        check(nfa > 0 and starts[0] == 0
+              and all(a < b for a, b in zip(starts, starts[1:]))
               and starts[-1] < ni // 3,
-              "the face table ascends and stays inside the triangles",
+              "the face table starts at nought, ascends and stays inside the "
+              "triangles",
               f"{nfa} faces, last starts at {starts[-1]} of {ni // 3}")
         check(len(body) == raw, "the recorded length is the real one",
               f"{len(body)} vs {raw}")
@@ -260,16 +308,38 @@ def main():
         # every coordinate moved by up to a float32 rounding (5e-8 mm on this
         # fixture) and nothing else - the counts are the same, test_model
         # compares the export against the node walk, and this pins it since.
+        # One entry per OCCT since 0.15.0 (21 Sep 2026): cadquery-ocp 8.0.1
+        # starts one disc face's rim from the next node round and, on a real
+        # board, flips 1.3 % of the diagonals - the same surface, other bytes
+        # - so the same code honestly packs to another CRC there. The OCCT at
+        # hand is checked byte for byte when it has an entry and against every
+        # entry's counts when it has not, with a note; and a golden is only
+        # ever written on purpose, never because a file or a key was missing,
+        # because a golden written by accident pins whatever happened to run.
         golden_path = Path(__file__).resolve().parent / "golden.json"
         got = {"crc": crc, "raw": raw, "counts": [nv, ni, nev, nei, nfa, ncr]}
-        if "--golden" in sys.argv or not golden_path.is_file():
-            golden_path.write_text(json.dumps(got, indent=2) + "\n",
+        goldens = (json.loads(golden_path.read_text(encoding="utf-8"))
+                   if golden_path.is_file() else {})
+        if "--golden" in sys.argv:
+            goldens[OCCT] = got
+            golden_path.write_text(json.dumps(goldens, indent=2) + "\n",
                                    encoding="utf-8")
-            print(f"  note  golden payload written to {golden_path.name}")
-        else:
-            want = json.loads(golden_path.read_text(encoding="utf-8"))
-            check(got == want, "the payload is byte for byte the golden one",
+            print(f"  note  golden payload for OCP {OCCT} written to "
+                  f"{golden_path.name}")
+        check(bool(goldens), "a golden payload is on record at all",
+              str(golden_path))
+        if OCCT in goldens:
+            want = goldens[OCCT]
+            check(got == want,
+                  f"the payload is byte for byte the golden one for OCP {OCCT}",
                   "" if got == want else f"got {got}, golden {want}")
+        elif goldens:
+            print(f"  note  no golden for OCP {OCCT} (recorded: "
+                  f"{', '.join(sorted(goldens))}) - the bytes are unpinned "
+                  f"here; record one with --golden once the mesh was looked at")
+            check(any(got["counts"] == g["counts"] for g in goldens.values()),
+                  "the counts agree with those of a recorded OCCT",
+                  f"got {got['counts']}")
 
         # ---- damage is detectable ----------------------------------------- #
         # Exactly what the page checks before it draws, done here in Python.

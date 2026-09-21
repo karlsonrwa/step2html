@@ -18,6 +18,10 @@ venv/
 # What the window remembers between runs
 step2html_config.json
 
+# Copies of the tree the mutation runner breaks, venvs for other OCCT
+# versions, and whatever else is intermediate
+work/
+
 # Editors / OS
 .vscode/
 .idea/

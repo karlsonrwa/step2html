@@ -1,0 +1,1614 @@
+[
+ {
+  "id": "budget-one-build-only",
+  "file": "step2html/budget.py",
+  "old": "MAX_BUILDS = 6 ",
+  "new": "MAX_BUILDS = 1 ",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "the search may never spend a second build - a roomy budget stays at the first mesh"
+ },
+ {
+  "id": "progress-done-not-full",
+  "file": "step2html/progress.py",
+  "old": "        self.progress(SPAN, SPAN, \"done\")",
+  "new": "        self.progress(SPAN - 1, SPAN, \"done\")",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "the bar ends one step short of full"
+ },
+ {
+  "id": "viewer-basis-y-flipped",
+  "file": "step2html/viewer/mat.js",
+  "old": "const z=n(d), x=n(cr(up,z)), y=cr(z,x);",
+  "new": "const z=n(d), x=n(cr(up,z)), y=cr(x,z);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the view basis is left-handed - every named view is mirrored top to bottom"
+ },
+ {
+  "id": "xcaf-srgb-gamma",
+  "file": "step2html/xcaf.py",
+  "old": "    s = 12.92 * v if v <= 0.0031308 else 1.055 * (v ** (1 / 2.4)) - 0.055",
+  "new": "    s = 12.92 * v if v <= 0.0031308 else 1.055 * (v ** (1 / 2.2)) - 0.055",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the sRGB encoding uses the wrong exponent, so every colour read back is off"
+ },
+ {
+  "id": "xcaf-colour-gen-only",
+  "file": "step2html/xcaf.py",
+  "old": "    for kind in (XCAFDoc_ColorType.XCAFDoc_ColorSurf,\n                 XCAFDoc_ColorType.XCAFDoc_ColorGen):\n        if color_tool.GetColor(shape, kind, col):",
+  "new": "    for kind in (XCAFDoc_ColorType.XCAFDoc_ColorGen,):\n        if color_tool.GetColor(shape, kind, col):",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the surface colour is never asked for, so a file that sets only Surf comes out grey"
+ },
+ {
+  "id": "xcaf-shape-moved-into-place",
+  "file": "step2html/xcaf.py",
+  "old": "        out.append((name, colour, shape, loc))",
+  "new": "        out.append((name, colour, shape.Moved(loc), loc))",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the part is handed on as a MOVED copy, whose identity XCAF no longer knows"
+ },
+ {
+  "id": "xcaf-component-location-lost",
+  "file": "step2html/xcaf.py",
+  "old": "                sub_loc = loc.Multiplied(shape_tool.GetLocation_s(comp))",
+  "new": "                sub_loc = loc",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "a component's own placement is dropped, so every part sits at the assembly origin"
+ },
+ {
+  "id": "xcaf-read-step-systemexit",
+  "file": "step2html/xcaf.py",
+  "old": "        raise ConvertError(f\"could not read {path} - is it a STEP file?\")",
+  "new": "        raise SystemExit(f\"could not read {path} - is it a STEP file?\")",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "an unreadable STEP raises SystemExit again, which the worker cannot catch"
+ },
+ {
+  "id": "meshing-deflection-divisor",
+  "file": "step2html/meshing.py",
+  "old": "    return max(0.004, min(0.25, diag / 2000.0))",
+  "new": "    return max(0.004, min(0.25, diag / 1000.0))",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "the automatic deflection is twice as coarse as one part in 2000 of the diagonal"
+ },
+ {
+  "id": "meshing-deflection-clamp",
+  "file": "step2html/meshing.py",
+  "old": "    return max(0.004, min(0.25, diag / 2000.0))",
+  "new": "    return max(0.004, min(2.5, diag / 2000.0))",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "the upper clamp is ten times too loose, so a big model meshes ten times coarser"
+ },
+ {
+  "id": "meshing-patch-split-not-first",
+  "file": "step2html/meshing.py",
+  "old": "    ORDER = {1.0: (\"divide\", \"plain\")}      # everywhere else: plain, divide",
+  "new": "    ORDER = {}      # everywhere else: plain, divide",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "the split is no longer tried first at the model's own deflection - the refused attempt is repeated"
+ },
+ {
+  "id": "meshing-patch-never-meshed",
+  "file": "step2html/meshing.py",
+  "old": "    BRepTools.Clean_s(shape)\n    BRepMesh_IncrementalMesh(shape, linear, False, angular, True)\n    got = faces(shape)",
+  "new": "    BRepTools.Clean_s(shape)\n    got = faces(shape)",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "a candidate patch is never meshed, so a patch that comes back carries no triangles"
+ },
+ {
+  "id": "meshing-repair-patches-nothing",
+  "file": "step2html/meshing.py",
+  "old": "        for face, area in empty:\n            piece = patch_face(face, linear, angular)",
+  "new": "        for face, area in empty:\n            piece = None",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "the rescue is severed: a face the mesher refused is left as a hole instead of patched"
+ },
+ {
+  "id": "tessellate-colour-face-level",
+  "file": "step2html/tessellate.py",
+  "old": "            rgb = (forced\n                   or colour_of(face)\n                   or solid_rgb.get(by_solid.FindIndex(face))\n                   or part_rgb)",
+  "new": "            rgb = (forced\n                   or solid_rgb.get(by_solid.FindIndex(face))\n                   or part_rgb)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "a face painted over its part loses its own colour"
+ },
+ {
+  "id": "tessellate-colour-solid-level",
+  "file": "step2html/tessellate.py",
+  "old": "            rgb = (forced\n                   or colour_of(face)\n                   or solid_rgb.get(by_solid.FindIndex(face))\n                   or part_rgb)",
+  "new": "            rgb = (forced\n                   or colour_of(face)\n                   or part_rgb)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the colour hung on a SOLID is never consulted - the 44%-of-the-surface bug"
+ },
+ {
+  "id": "tessellate-twelve-transposed",
+  "file": "step2html/tessellate.py",
+  "old": "    return tuple(trsf.Value(r, c) for r in (1, 2, 3) for c in (1, 2, 3, 4))",
+  "new": "    return tuple(trsf.Value(r, c) for c in (1, 2, 3, 4) for r in (1, 2, 3))",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the twelve numbers of a placement come out column by column, so every transform is scrambled"
+ },
+ {
+  "id": "tessellate-placed-no-translation",
+  "file": "step2html/tessellate.py",
+  "old": "    return np.stack((a11 * x + a12 * y + a13 * z + t1,",
+  "new": "    return np.stack((a11 * x + a12 * y + a13 * z,",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the export path drops the X translation of a part's placement"
+ },
+ {
+  "id": "tessellate-walk-winding-branch",
+  "file": "step2html/tessellate.py",
+  "old": "    if flipped:\n        tris = [(a - 1, c - 1, b - 1) for a, b, c in corners]\n    else:\n        tris = [(a - 1, b - 1, c - 1) for a, b, c in corners]",
+  "new": "    if flipped:\n        tris = [(a - 1, b - 1, c - 1) for a, b, c in corners]\n    else:\n        tris = [(a - 1, c - 1, b - 1) for a, b, c in corners]",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the node walk turns a REVERSED face the wrong way round"
+ },
+ {
+  "id": "tessellate-orientation-ignored",
+  "file": "step2html/tessellate.py",
+  "old": "            flipped = (face.Orientation() == TopAbs_Orientation.TopAbs_REVERSED)",
+  "new": "            flipped = False",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "a REVERSED face keeps the triangulation's own winding, so it faces into the solid"
+ },
+ {
+  "id": "tessellate-export-not-checked",
+  "file": "step2html/tessellate.py",
+  "old": "                wound = _lined_up(tri, _twelve(loc.Transformation()),\n                                  positions, triangles, flipped)",
+  "new": "                wound = triangles",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "a primitive is used without checking it is this face, and with the writer's own winding"
+ },
+ {
+  "id": "tessellate-normals-flipped",
+  "file": "step2html/tessellate.py",
+  "old": "        F = np.cross(B - A, C - A)",
+  "new": "        F = np.cross(C - A, B - A)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "every vertex normal points into the solid instead of out of it"
+ },
+ {
+  "id": "tessellate-normals-not-unit",
+  "file": "step2html/tessellate.py",
+  "old": "    N /= m[:, None]",
+  "new": "    N /= 1.0",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "normals are never normalised, so their length is the area of the triangles meeting there"
+ },
+ {
+  "id": "tessellate-face-table-flat",
+  "file": "step2html/tessellate.py",
+  "old": "            face_starts.append(ntris)",
+  "new": "            face_starts.append(0)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "every face claims to start at triangle 0, so a picked triangle names the wrong face"
+ },
+ {
+  "id": "tessellate-edge-base-lost",
+  "file": "step2html/tessellate.py",
+  "old": "                            emit(world[base + ids - 1])",
+  "new": "                            emit(world[ids - 1])",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "an edge's points are taken from the first face's vertices instead of its own face's"
+ },
+ {
+  "id": "tessellate-circle-not-placed",
+  "file": "step2html/tessellate.py",
+  "old": "            circ = ad.Circle().Transformed(place)",
+  "new": "            circ = ad.Circle()",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "a circle keeps the edge's location only, so every hole on a placed part snaps back to the origin"
+ },
+ {
+  "id": "tessellate-edges-from-curve",
+  "file": "step2html/tessellate.py",
+  "old": "                    poly = (BRep_Tool.PolygonOnTriangulation_s(edge, tri, floc)\n                            if tri is not None and base is not None else None)",
+  "new": "                    poly = None",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "edges are sampled from the true curve again, so a line no longer lies on the triangle edge"
+ },
+ {
+  "id": "tessellate-circle-dedup-off",
+  "file": "step2html/tessellate.py",
+  "old": "        if key in circle_keys:\n            return",
+  "new": "        if False:\n            return",
+  "suites": [
+   "tests/test_model.py",
+   "tests/test_page.py"
+  ],
+  "why": "one hole becomes several circles when its rim is cut into arcs or shared by two faces"
+ },
+ {
+  "id": "tessellate-curve-fallback-not-placed",
+  "file": "step2html/tessellate.py",
+  "old": "                                       curve.Value(disc.Parameter(k)).Transformed(place))",
+  "new": "                                       curve.Value(disc.Parameter(k)))",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "the curve fallback ignores the part's placement, so those edges land at the origin"
+ },
+ {
+  "id": "gltf-export-severed",
+  "file": "step2html/tessellate.py",
+  "old": "    exported = export_mesh(doc, workdir) if doc is not None else None",
+  "new": "    exported = None",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the bulk glTF export is never asked for - every face falls back to the node walk"
+ },
+ {
+  "id": "gltf-output-unit-metres",
+  "file": "step2html/gltf.py",
+  "old": "        conv.SetOutputLengthUnit(0.001)",
+  "new": "        conv.SetOutputLengthUnit(1.0)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the export comes back in metres, so every primitive is a thousandth of its face"
+ },
+ {
+  "id": "gltf-output-yup",
+  "file": "step2html/gltf.py",
+  "old": "        conv.SetOutputCoordinateSystem(RWMesh_CoordinateSystem.RWMesh_CoordinateSystem_Zup)",
+  "new": "        conv.SetOutputCoordinateSystem(RWMesh_CoordinateSystem.RWMesh_CoordinateSystem_Yup)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the export comes back Y up, so every primitive is rotated against its face"
+ },
+ {
+  "id": "gltf-triangles-reversed",
+  "file": "step2html/gltf.py",
+  "old": "            triangles = array(prim[\"indices\"]).reshape(-1, 3).astype(np.int64)",
+  "new": "            triangles = array(prim[\"indices\"]).reshape(-1, 3)[:, ::-1].astype(np.int64)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the indices read out of the .glb are reversed, so every primitive is wound backwards"
+ },
+ {
+  "id": "gltf-instance-order",
+  "file": "step2html/gltf.py",
+  "old": "        for child in node.get(\"children\", []):\n            walk(child)",
+  "new": "        for child in reversed(node.get(\"children\", [])):\n            walk(child)",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "instances come back in the wrong scene order, so a part is handed another part's primitives"
+ },
+ {
+  "id": "gltf-glb-left-behind",
+  "file": "step2html/gltf.py",
+  "old": "    finally:\n        try:\n            path.unlink()\n        except OSError:\n            pass",
+  "new": "    finally:\n        pass",
+  "suites": [
+   "tests/test_model.py"
+  ],
+  "why": "the exported .glb is left beside the page - 18 MB of litter per build"
+ },
+ {
+  "id": "payload-format-version",
+  "file": "step2html/payload.py",
+  "old": "FORMAT_VERSION = 4",
+  "new": "FORMAT_VERSION = 5",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the header claims a version the page cannot read"
+ },
+ {
+  "id": "payload-normal-quantise",
+  "file": "step2html/payload.py",
+  "old": "        np.clip(np.rint(np.asarray(nrm, dtype=np.float64) * 127) + 128,",
+  "new": "        np.clip(np.rint(np.asarray(nrm, dtype=np.float64) * 126) + 128,",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "normals are quantised on a different scale, so every lit surface is slightly wrong"
+ },
+ {
+  "id": "payload-centre-not-midpoint",
+  "file": "step2html/payload.py",
+  "old": "    centre = (lo + hi) / 2",
+  "new": "    centre = lo",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the model is centred on its corner instead of the middle of its box"
+ },
+ {
+  "id": "payload-crc-truncated",
+  "file": "step2html/payload.py",
+  "old": "    crc = zlib.crc32(body) & 0xFFFFFFFF",
+  "new": "    crc = zlib.crc32(body) & 0xFFFF",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "only half the checksum is recorded, so the page's damage check is a coin toss"
+ },
+ {
+  "id": "payload-zlib-wrapped",
+  "file": "step2html/payload.py",
+  "old": "    comp = zlib.compressobj(9, zlib.DEFLATED, -15)   # raw deflate = deflate-raw",
+  "new": "    comp = zlib.compressobj(9, zlib.DEFLATED, 15)   # raw deflate = deflate-raw",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the payload is zlib-wrapped, which DecompressionStream('deflate-raw') cannot read"
+ },
+ {
+  "id": "payload-unpack-offset",
+  "file": "step2html/payload.py",
+  "old": "    nrm = bytes(body[o:o + nv * 3]); o += nv * 3",
+  "new": "    nrm = bytes(body[o:o + nv * 3]); o += nv * 2",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the reader walks past the normals by the wrong stride, so every array after them is misread"
+ },
+ {
+  "id": "page-substitution-key-by-key",
+  "file": "step2html/page.py",
+  "old": "    return re.sub(r\"__[A-Z_0-9]+__\",\n                  lambda m: subs.get(m.group(0), m.group(0)), PAGE)",
+  "new": "    out = PAGE\n    for _k, _v in subs.items():\n        out = out.replace(_k, _v)\n    return out",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "substitution goes key by key again, so a title that looks like a placeholder is rewritten"
+ },
+ {
+  "id": "page-title-unescaped",
+  "file": "step2html/page.py",
+  "old": "        \"__TITLE__\": html.escape(title),",
+  "new": "        \"__TITLE__\": title,",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the title reaches the page unescaped, so a & or a < in it breaks the markup"
+ },
+ {
+  "id": "page-js-file-dropped",
+  "file": "step2html/page.py",
+  "old": "JS_ORDER = (\"payload.js\", \"mat.js\", \"camera.js\", \"pick.js\", \"gl.js\",\n            \"overlays.js\", \"measure.js\", \"png.js\", \"hash.js\", \"layout.js\",\n            \"boot.js\")",
+  "new": "JS_ORDER = (\"payload.js\", \"mat.js\", \"camera.js\", \"pick.js\", \"gl.js\",\n            \"overlays.js\", \"png.js\", \"hash.js\", \"layout.js\",\n            \"boot.js\")",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "a file under viewer/ is left off the list, so the page ships without it"
+ },
+ {
+  "id": "page-boot-first",
+  "file": "step2html/page.py",
+  "old": "JS_ORDER = (\"payload.js\", \"mat.js\", \"camera.js\", \"pick.js\", \"gl.js\",\n            \"overlays.js\", \"measure.js\", \"png.js\", \"hash.js\", \"layout.js\",\n            \"boot.js\")",
+  "new": "JS_ORDER = (\"boot.js\", \"payload.js\", \"mat.js\", \"camera.js\", \"pick.js\",\n            \"gl.js\", \"overlays.js\", \"measure.js\", \"png.js\", \"hash.js\",\n            \"layout.js\")",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "boot() runs before the functions it calls are defined"
+ },
+ {
+  "id": "page-css-not-substituted",
+  "file": "step2html/page.py",
+  "old": "PAGE = (_read(\"viewer.html\")\n        .replace(\"__CSS__\", _read(\"viewer.css\"))\n",
+  "new": "PAGE = (_read(\"viewer.html\")\n",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the stylesheet is never put in, and __CSS__ reaches the browser as text"
+ },
+ {
+  "id": "convert-keeps-first-not-best",
+  "file": "step2html/convert.py",
+  "old": "    kept = found.best.payload",
+  "new": "    kept = found.samples[0].payload",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the FIRST build is written while the log names the one the search kept"
+ },
+ {
+  "id": "convert-platform-newlines",
+  "file": "step2html/convert.py",
+  "old": "    out.write_text(page, encoding=\"utf-8\", newline=\"\\n\")",
+  "new": "    out.write_text(page, encoding=\"utf-8\")",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the page is written with the platform's line endings, so the file is bigger than the size weighed"
+ },
+ {
+  "id": "convert-budget-ignored",
+  "file": "step2html/convert.py",
+  "old": "    found = search(build, budget, log=log)",
+  "new": "    found = search(build, None, log=log)",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the size budget never reaches the search: one build, whatever it weighs"
+ },
+ {
+  "id": "meta-commit-dropped",
+  "file": "step2html/meta.py",
+  "old": "    return f\"{__version__} · {_commit}\" if _commit else __version__",
+  "new": "    return __version__",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the page no longer names the commit it was built from"
+ },
+ {
+  "id": "meta-edits-not-stamped",
+  "file": "step2html/meta.py",
+  "old": "                    _commit += \"+edits\"",
+  "new": "                    _commit += \"\"",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "a page built from an edited tree claims to be the commit it names"
+ },
+ {
+  "id": "viewer-payload-crc-polynomial",
+  "file": "step2html/viewer/payload.js",
+  "old": "0xEDB88320^(c>>>1)",
+  "new": "0xEDB88321^(c>>>1)",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the CRC table is built from the wrong polynomial - every checksum is wrong"
+ },
+ {
+  "id": "viewer-payload-header-counts-swapped",
+  "file": "step2html/viewer/payload.js",
+  "old": "const nv=dv.getUint32(8,true), ni=dv.getUint32(12,true),",
+  "new": "const nv=dv.getUint32(12,true), ni=dv.getUint32(8,true),",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the vertex and index counts are read from each other's offset"
+ },
+ {
+  "id": "viewer-payload-normals-and-colours-swapped",
+  "file": "step2html/viewer/payload.js",
+  "old": "  const nrmB=new Uint8Array(buf.slice(o,o+nv*3)); o+=nv*3;\n  const colB=new Uint8Array(buf.slice(o,o+nv*3)); o+=nv*3;",
+  "new": "  const colB=new Uint8Array(buf.slice(o,o+nv*3)); o+=nv*3;\n  const nrmB=new Uint8Array(buf.slice(o,o+nv*3)); o+=nv*3;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the normals are read as colours and the colours as normals"
+ },
+ {
+  "id": "viewer-payload-edge-vertex-stride",
+  "file": "step2html/viewer/payload.js",
+  "old": "const epos=new Float32Array(buf.slice(o,o+nev*12)); o+=nev*12;",
+  "new": "const epos=new Float32Array(buf.slice(o,o+nev*24)); o+=nev*24;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the edge vertices are read at twice their stride, and every array after them shifts"
+ },
+ {
+  "id": "viewer-payload-index-stride",
+  "file": "step2html/viewer/payload.js",
+  "old": "const idx=new Uint32Array(buf.slice(o,o+ni*4)); o+=ni*4;",
+  "new": "const idx=new Uint32Array(buf.slice(o,o+ni*8)); o+=ni*8;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the triangle indices are read at twice their stride, and every array after them shifts"
+ },
+ {
+  "id": "viewer-payload-base64-one-slice",
+  "file": "step2html/viewer/payload.js",
+  "old": "SLICE=1<<22",
+  "new": "SLICE=1<<30",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the base64 is decoded in one go: the counter does not move and the page cannot paint"
+ },
+ {
+  "id": "viewer-payload-final-progress-severed",
+  "file": "step2html/viewer/payload.js",
+  "old": "progress('inflate',1);",
+  "new": "void 0;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the last report of the inflate counter is gone: a page whose promised length is wrong never reaches 100 %"
+ },
+ {
+  "id": "viewer-payload-chunk-crc-not-run",
+  "file": "step2html/viewer/payload.js",
+  "old": "crc=crcRun(crc,value);",
+  "new": "crc=crc>>>0;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the CRC is not fed the chunks as they arrive, so the payload check is meaningless"
+ },
+ {
+  "id": "viewer-payload-old-browser-called-damage",
+  "file": "step2html/viewer/payload.js",
+  "old": "if(!('DecompressionStream' in window)) throw {kind:'old'};",
+  "new": "if(!('DecompressionStream' in window)) throw {kind:'unpack'};",
+  "suites": [
+   "tests/test_viewer.py",
+   "tests/test_page.py"
+  ],
+  "why": "a browser with no DecompressionStream is told its file is damaged, not that it is old"
+ },
+ {
+  "id": "viewer-mat-rotx-sign",
+  "file": "step2html/viewer/mat.js",
+  "old": "return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]);",
+  "new": "return new Float32Array([1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "rotX turns the other way - a drag up tips the model down"
+ },
+ {
+  "id": "viewer-mat-roty-sign",
+  "file": "step2html/viewer/mat.js",
+  "old": "return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]);",
+  "new": "return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "rotY turns the other way - a drag right turns the model left"
+ },
+ {
+  "id": "viewer-mat-mul-transposed",
+  "file": "step2html/viewer/mat.js",
+  "old": "for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];r[i*4+j]=s}return r}",
+  "new": "for(let k=0;k<4;k++)s+=a[j*4+k]*b[k*4+i];r[i*4+j]=s}return r}",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the product is read row-major, so every composed matrix is transposed"
+ },
+ {
+  "id": "viewer-mat-orthonormalise-handedness",
+  "file": "step2html/viewer/mat.js",
+  "old": "const w=[u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];",
+  "new": "const w=[u[2]*v[1]-u[1]*v[2], u[0]*v[2]-u[2]*v[0], u[1]*v[0]-u[0]*v[1]];",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the third column points the other way: the tidy-up mirrors the model on every drag"
+ },
+ {
+  "id": "viewer-mat-gram-schmidt-severed",
+  "file": "step2html/viewer/mat.js",
+  "old": "v=norm([v[0]-k*u[0], v[1]-k*u[1], v[2]-k*u[2]]);",
+  "new": "v=norm([v[0], v[1], v[2]]);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the second column is normalised but not made perpendicular - the shear it exists to remove survives"
+ },
+ {
+  "id": "viewer-mat-basis-transposed",
+  "file": "step2html/viewer/mat.js",
+  "old": "return new Float32Array([x[0],y[0],z[0],0,\n                           x[1],y[1],z[1],0,\n                           x[2],y[2],z[2],0,",
+  "new": "return new Float32Array([x[0],x[1],x[2],0,\n                           y[0],y[1],y[2],0,\n                           z[0],z[1],z[2],0,",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the basis is written as columns instead of rows: every named view is the inverse turn"
+ },
+ {
+  "id": "viewer-camera-views-bottom-is-top",
+  "file": "step2html/viewer/camera.js",
+  "old": "basis([0,0,-1], [0,1,0]),      // bottom",
+  "new": "basis([0,0,1],  [0,1,0]),      // bottom",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "menu item 2 and key 2 show the top again - the bottom view is unreachable"
+ },
+ {
+  "id": "viewer-camera-fov-doubled",
+  "file": "step2html/viewer/camera.js",
+  "old": "const FOV=Math.PI/6;",
+  "new": "const FOV=Math.PI/3;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the field of view is 60 degrees, not 30: every fit, every ray and every pixel size moves"
+ },
+ {
+  "id": "viewer-camera-fit-margin",
+  "file": "step2html/viewer/camera.js",
+  "old": "return d*1.04;",
+  "new": "return d*1.20;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the model is fitted with a sixth of the frame as empty margin instead of a twenty-fifth"
+ },
+ {
+  "id": "viewer-camera-home-aspect-floor",
+  "file": "step2html/viewer/camera.js",
+  "old": "const d=fitDist(HOME_ROT, Math.max(.2,(w||1)/(h||1)), half);",
+  "new": "const d=fitDist(HOME_ROT, Math.max(5,(w||1)/(h||1)), half);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the home view is fitted to an aspect of at least 5 - a normal window opens far too close"
+ },
+ {
+  "id": "viewer-camera-setdist-upper-clamp",
+  "file": "step2html/viewer/camera.js",
+  "old": "Math.min(span*20,v)",
+  "new": "Math.min(span*2000,v)",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the wheel can pull the camera a hundred times further out than the model is big"
+ },
+ {
+  "id": "viewer-camera-setdist-lower-clamp",
+  "file": "step2html/viewer/camera.js",
+  "old": "Math.max(span*.05,Math.min",
+  "new": "Math.max(span*.5,Math.min",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the wheel stops ten times further out than it should - no close inspection"
+ },
+ {
+  "id": "viewer-camera-ortho-vertical-scale",
+  "file": "step2html/viewer/camera.js",
+  "old": "0,1/t,0,0,",
+  "new": "0,2/t,0,0,",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the orthographic projection is half as tall as it is wide - the model is squashed vertically"
+ },
+ {
+  "id": "viewer-camera-ortho-depth-range",
+  "file": "step2html/viewer/camera.js",
+  "old": "zn=cam.dist-span*4, zf=cam.dist+span*4;",
+  "new": "zn=cam.dist-span*0.1, zf=cam.dist+span*0.1;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the orthographic clipping planes hug the pivot: most of the model is clipped away"
+ },
+ {
+  "id": "viewer-camera-modelview-pivot-sign",
+  "file": "step2html/viewer/camera.js",
+  "old": "-cam.pivot[0],-cam.pivot[1],-cam.pivot[2],1]);",
+  "new": "cam.pivot[0],cam.pivot[1],cam.pivot[2],1]);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the model is shifted towards the pivot instead of away from it - a click throws the view twice as far off"
+ },
+ {
+  "id": "viewer-camera-toscreen-behind-guard",
+  "file": "step2html/viewer/camera.js",
+  "old": "if(cw<=1e-6) return null;",
+  "new": "if(cw<=-1e30) return null;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "a point behind the camera is projected instead of refused, so an overlay is drawn mirrored in front"
+ },
+ {
+  "id": "viewer-camera-toscreen-y-flip",
+  "file": "step2html/viewer/camera.js",
+  "old": "return [(cx/cw*.5+.5)*w, (.5-cy/cw*.5)*h];",
+  "new": "return [(cx/cw*.5+.5)*w, (.5+cy/cw*.5)*h];",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "screen Y is not flipped: every overlay sits mirrored top to bottom against the model"
+ },
+ {
+  "id": "viewer-camera-tomodel-transposed",
+  "file": "step2html/viewer/camera.js",
+  "old": "const a=MV[0]*x+MV[1]*y+MV[2]*z,\n        b=MV[4]*x+MV[5]*y+MV[6]*z,\n        c=MV[8]*x+MV[9]*y+MV[10]*z;",
+  "new": "const a=MV[0]*x+MV[4]*y+MV[8]*z,\n        b=MV[1]*x+MV[5]*y+MV[9]*z,\n        c=MV[2]*x+MV[6]*y+MV[10]*z;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the inverse rotation is taken as the matrix instead of its transpose: the pick ray goes the wrong way once the model is turned"
+ },
+ {
+  "id": "viewer-pick-ortho-origin-behind",
+  "file": "step2html/viewer/pick.js",
+  "old": "const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, span*4] : [0,0,0];",
+  "new": "const ov = ortho ? [nx*cam.oh*a, ny*cam.oh, -span*4] : [0,0,0];",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the orthographic ray starts behind the model, so everything is thrown away by t>0"
+ },
+ {
+  "id": "viewer-pick-ortho-aspect-ignored",
+  "file": "step2html/viewer/pick.js",
+  "old": "[nx*cam.oh*a, ny*cam.oh, span*4]",
+  "new": "[nx*cam.oh, ny*cam.oh, span*4]",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the orthographic ray ignores the aspect: on a wide canvas a click picks the wrong point horizontally"
+ },
+ {
+  "id": "viewer-pick-nearest-not-kept",
+  "file": "step2html/viewer/pick.js",
+  "old": "if(dist>1e-6 && dist<best){best=dist; tri=i/3;",
+  "new": "if(dist>1e-6){best=dist; tri=i/3;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the LAST triangle along the ray wins instead of the nearest - a click picks through the board"
+ },
+ {
+  "id": "viewer-pick-triangle-index-unscaled",
+  "file": "step2html/viewer/pick.js",
+  "old": "{best=dist; tri=i/3;",
+  "new": "{best=dist; tri=i;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the triangle is reported by its index offset, not its number: the wrong face highlights"
+ },
+ {
+  "id": "viewer-pick-screen-y-not-flipped",
+  "file": "step2html/viewer/pick.js",
+  "old": "ny=1-2*(clientY-rect.top)/rect.height;",
+  "new": "ny=2*(clientY-rect.top)/rect.height-1;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the cursor's Y is not flipped into clip space: a click picks the point mirrored about the middle"
+ },
+ {
+  "id": "viewer-pick-faceof-boundary",
+  "file": "step2html/viewer/pick.js",
+  "old": "if(faceAt[mid]<=tri) lo=mid; else hi=mid-1; }",
+  "new": "if(faceAt[mid]<tri) lo=mid; else hi=mid-1; }",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the first triangle of a face is charged to the face before it - the wrong face highlights on every boundary"
+ },
+ {
+  "id": "viewer-pick-snap-radius",
+  "file": "step2html/viewer/pick.js",
+  "old": "const SNAP_PX=14;",
+  "new": "const SNAP_PX=140;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the snap reaches ten times as far: a click anywhere near a board catches some hole"
+ },
+ {
+  "id": "viewer-pick-snap-returns-the-hit",
+  "file": "step2html/viewer/pick.js",
+  "old": "return {p:[cir[o],cir[o+1],cir[o+2]], n:[cir[o+3],cir[o+4],cir[o+5]],",
+  "new": "return {p:[hit[0],hit[1],hit[2]], n:[cir[o+3],cir[o+4],cir[o+5]],",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the snap gives back the point under the cursor instead of the centre it caught"
+ },
+ {
+  "id": "viewer-hash-precision",
+  "file": "step2html/viewer/hash.js",
+  "old": "(+v).toPrecision(6)",
+  "new": "(+v).toPrecision(3)",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the view is written with three significant digits: a restored link is visibly off"
+ },
+ {
+  "id": "viewer-hash-strip-whole-string",
+  "file": "step2html/viewer/hash.js",
+  "old": ".replace(/(\\.\\d*?)0+$/,'$1')",
+  "new": ".replace(/0+$/,'')",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the 0.9.x bug back: trailing zeros are stripped off whole numbers, so 120000 becomes 12"
+ },
+ {
+  "id": "viewer-hash-plus-out-of-class",
+  "file": "step2html/viewer/hash.js",
+  "old": "/^#v=([-+\\d.,e]+)$/",
+  "new": "/^#v=([-\\d.,e]+)$/",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the page's own output past a million (1.00000e+6) is rejected by its own reader"
+ },
+ {
+  "id": "viewer-hash-nan-guard",
+  "file": "step2html/viewer/hash.js",
+  "old": "if(p.length!==16||p.some(Number.isNaN)) return null;",
+  "new": "if(p.length!==16) return null;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "sixteen unreadable numbers are accepted, and the camera is set to NaN"
+ },
+ {
+  "id": "viewer-hash-rot-transposed",
+  "file": "step2html/viewer/hash.js",
+  "old": "return {rot:new Float32Array([p[0],p[1],p[2],0, p[3],p[4],p[5],0,\n                                p[6],p[7],p[8],0, 0,0,0,1]),",
+  "new": "return {rot:new Float32Array([p[0],p[3],p[6],0, p[1],p[4],p[7],0,\n                                p[2],p[5],p[8],0, 0,0,0,1]),",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the rotation comes back transposed, so a shared link opens at the inverse turn"
+ },
+ {
+  "id": "viewer-pick-rect-offset",
+  "file": "step2html/viewer/pick.js",
+  "old": "2*(clientX-rect.left)/rect.width-1",
+  "new": "2*clientX/rect.width-1",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the canvas is taken to start at the left edge of the window: every click picks a point shifted by wherever the canvas actually sits"
+ },
+ {
+  "id": "viewer-pick-snap-nearest-not-kept",
+  "file": "step2html/viewer/pick.js",
+  "old": "if(off<bd){ bd=off; bi=i; }",
+  "new": "if(off<bd){ bi=i; }",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the running best is never tightened, so the LAST rim within reach is caught instead of the nearest"
+ },
+ {
+  "id": "viewer-layout-oblong-one-way-round",
+  "file": "step2html/viewer/layout.js",
+  "old": "return Math.max(w/h,h/w);",
+  "new": "return w/h;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "how oblong a view is is measured one way round only, so a portrait view scores below 1 and the bar goes to the side that makes it worse"
+ },
+ {
+  "id": "viewer-layout-oblong-zero-size",
+  "file": "step2html/viewer/layout.js",
+  "old": "w=Math.max(w,1);h=Math.max(h,1);",
+  "new": "w=Math.max(w,0);h=Math.max(h,0);",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "a window not laid out yet reports 0, and 0/0 is NaN: every comparison against it is false and the bar lands on the default side for good"
+ },
+ {
+  "id": "viewer-camera-persp-focal",
+  "file": "step2html/viewer/camera.js",
+  "old": "const f=1/Math.tan(.5*FOV),",
+  "new": "const f=2/Math.tan(.5*FOV),",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the perspective view is twice as magnified as the orthographic one, so flipping between them jumps"
+ },
+ {
+  "id": "viewer-camera-persp-depth-range",
+  "file": "step2html/viewer/camera.js",
+  "old": "zn=Math.max(span*.005,cam.dist-span*1.5), zf=cam.dist+span*1.5;",
+  "new": "zn=Math.max(span*.005,cam.dist-span*15), zf=cam.dist+span*15;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the perspective depth range is ten times too deep, and the depth buffer loses the precision that keeps near faces in front of far ones"
+ },
+ {
+  "id": "viewer-camera-persp-near-floor",
+  "file": "step2html/viewer/camera.js",
+  "old": "zn=Math.max(span*.005,cam.dist-span*1.5)",
+  "new": "zn=Math.max(span*-5,cam.dist-span*1.5)",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the floor under the near plane is gone: a camera closer to the pivot than the model is deep gets a near plane at or below zero, and a blank frame"
+ },
+ {
+  "id": "viewer-camera-pxsize-persp-depth",
+  "file": "step2html/viewer/camera.js",
+  "old": "return 2*Math.tan(FOV/2)*Math.max(1e-6,-vz)/h;",
+  "new": "return 2*Math.tan(FOV/2)*Math.max(1e-6,vz)/h;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "in perspective a pixel is worth a millionth of a model unit whatever the depth, so the snap reaches nothing at all"
+ },
+ {
+  "id": "budget-aims-well-short-of-the-budget",
+  "file": "step2html/budget.py",
+  "old": "TARGET = 0.97",
+  "new": "TARGET = 0.55",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "the search aims at half the budget, so the page it keeps is half the size it could be"
+ },
+ {
+  "id": "budget-close-enough-always-met",
+  "file": "step2html/budget.py",
+  "old": "CLOSE_ENOUGH = 0.94",
+  "new": "CLOSE_ENOUGH = 0.00",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "anything that fits at all is close enough, so the first build ends the search"
+ },
+ {
+  "id": "budget-fit-exponent-inverted",
+  "file": "step2html/budget.py",
+  "old": "    return q0 * (goal / max(s0, 1)) ** (1.0 / alpha)",
+  "new": "    return q0 * (goal / max(s0, 1)) ** alpha",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "the power law is applied upside down, so each guess goes the wrong distance"
+ },
+ {
+  "id": "budget-quality-clamp-off",
+  "file": "step2html/budget.py",
+  "old": "        q = max(0.15, min(24.0, predict()))",
+  "new": "        q = predict()",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "nothing stops the fit asking for a mesh 1000x finer or coarser than the automatic one"
+ },
+ {
+  "id": "budget-nowhere-new-guard-off",
+  "file": "step2html/budget.py",
+  "old": "        if any(abs(math.log(q / seen.quality)) < 0.03 for seen in samples):",
+  "new": "        if any(abs(math.log(q / seen.quality)) < 0.0 for seen in samples):",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "the search never notices it is asking for a quality it has already built, and spends every build"
+ },
+ {
+  "id": "budget-a-hole-is-never-refused",
+  "file": "step2html/budget.py",
+  "old": "        elif t.holes > floor:",
+  "new": "        elif t.holes < 0.0:",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "a build that opens a hole is kept as the answer instead of being refused"
+ },
+ {
+  "id": "budget-hole-floor-forgets-the-first-build",
+  "file": "step2html/budget.py",
+  "old": "    floor = s.holes + FLOOR_SLACK",
+  "new": "    floor = FLOOR_SLACK",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "a hole the first build already had refuses every later build, so a model with one bad face gets no search"
+ },
+ {
+  "id": "budget-over-budget-may-be-kept",
+  "file": "step2html/budget.py",
+  "old": "        if t.size > budget:",
+  "new": "        if t.size > budget * 10:",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "a page up to ten times the budget counts as fitting, and can be the one kept"
+ },
+ {
+  "id": "budget-smallest-is-the-largest",
+  "file": "step2html/budget.py",
+  "old": "        if t.size < smallest.size:",
+  "new": "        if t.size > smallest.size:",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "when nothing fits, the LARGEST build comes back instead of the smallest"
+ },
+ {
+  "id": "budget-nothing-fitted-claims-a-fit",
+  "file": "step2html/budget.py",
+  "old": "        return Outcome(smallest, samples, False)",
+  "new": "        return Outcome(smallest, samples, True)",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "a page that is over budget comes back marked as fitting it"
+ },
+ {
+  "id": "budget-no-budget-is-not-a-fit",
+  "file": "step2html/budget.py",
+  "old": "        return Outcome(s, samples, True)",
+  "new": "        return Outcome(s, samples, False)",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "with no budget at all the single build is reported as not fitting"
+ },
+ {
+  "id": "budget-no-warning-when-nothing-fits",
+  "file": "step2html/budget.py",
+  "old": "        log(f\"warning: nothing fitted the {budget:,} byte budget; keeping \"\n            f\"the smallest built, {smallest.size:,} bytes\")",
+  "new": "        pass",
+  "suites": [
+   "tests/test_budget.py"
+  ],
+  "why": "nothing says the budget was missed; an over-budget page goes out quietly"
+ },
+ {
+  "id": "progress-does-not-start-at-zero",
+  "file": "step2html/progress.py",
+  "old": "        self.progress(0, SPAN, label)",
+  "new": "        self.progress(SPAN // 4, SPAN, label)",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "the bar is a quarter full before anything has been done"
+ },
+ {
+  "id": "progress-phase-eats-its-own-weight",
+  "file": "step2html/progress.py",
+  "old": "        base = sum(WEIGHTS[:index])",
+  "new": "        base = sum(WEIGHTS[:index + 1])",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "every phase starts at its own END, so the bar jumps forward and then back"
+ },
+ {
+  "id": "progress-tick-ignores-its-phase",
+  "file": "step2html/progress.py",
+  "old": "        index = PHASES.index(what) if what in PHASES else 0",
+  "new": "        index = 0",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "every tick is scored as the first phase, so the bar falls back at each new one"
+ },
+ {
+  "id": "progress-build-label-swapped",
+  "file": "step2html/progress.py",
+  "old": "            label = f\"build {self.build_no} of at most {self.planned} - {label}\"",
+  "new": "            label = f\"build {self.planned} of at most {self.build_no} - {label}\"",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "the label says build 3 of at most 1"
+ },
+ {
+  "id": "progress-one-build-still-counted",
+  "file": "step2html/progress.py",
+  "old": "        if self.planned > 1:",
+  "new": "        if self.planned > 0:",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "a single build is announced as 'build 1 of at most 1', which is noise"
+ },
+ {
+  "id": "progress-weights-reordered",
+  "file": "step2html/progress.py",
+  "old": "WEIGHTS = (0.42, 0.30, 0.16, 0.08, 0.04)",
+  "new": "WEIGHTS = (0.04, 0.08, 0.16, 0.30, 0.42)",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "the longest phase gets the smallest share, so the bar crawls then leaps - the thing weights exist to stop"
+ },
+ {
+  "id": "progress-tick-past-its-total",
+  "file": "step2html/progress.py",
+  "old": "        value = SPAN * (base + WEIGHTS[index] * min(done / max(total, 1), 1.0))",
+  "new": "        value = SPAN * (base + WEIGHTS[index] * (done / max(total, 1)))",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "a stage reporting more done than it planned pushes the bar past its phase, and past full"
+ },
+ {
+  "id": "progress-no-callback-is-a-crash",
+  "file": "step2html/progress.py",
+  "old": "        self.progress = progress or (lambda _v, _t, _l: None)",
+  "new": "        self.progress = progress",
+  "suites": [
+   "tests/test_progress.py"
+  ],
+  "why": "a Phaser built with no callback raises on the first phase instead of going quiet"
+ },
+ {
+  "id": "geometry-negative-origin-rejected",
+  "file": "step2html/gui/geometry.py",
+  "old": "_GEOMETRY = re.compile(r\"^(\\d+)x(\\d+)\\+(-?\\d+)\\+(-?\\d+)$\")",
+  "new": "_GEOMETRY = re.compile(r\"^(\\d+)x(\\d+)\\+(\\d+)\\+(\\d+)$\")",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "a window on a monitor left of the primary (+-1920) no longer parses, so its place is forgotten"
+ },
+ {
+  "id": "geometry-bare-minus-accepted",
+  "file": "step2html/gui/geometry.py",
+  "old": "_GEOMETRY = re.compile(r\"^(\\d+)x(\\d+)\\+(-?\\d+)\\+(-?\\d+)$\")",
+  "new": "_GEOMETRY = re.compile(r\"^(\\d+)x(\\d+)[-+](-?\\d+)\\+(-?\\d+)$\")",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "'620x855-100+87' is read as a position, when Tk means an offset from the right edge"
+ },
+ {
+  "id": "geometry-title-bar-above-the-screen-allowed",
+  "file": "step2html/gui/geometry.py",
+  "old": "    if y < vy:",
+  "new": "    if vy > y + 10000:",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "a window whose title bar is above every screen counts as reachable, and cannot be dragged back"
+ },
+ {
+  "id": "geometry-a-sliver-is-reachable",
+  "file": "step2html/gui/geometry.py",
+  "old": "    return seen_w >= 120 and seen_h >= 40",
+  "new": "    return seen_w >= 1 and seen_h >= 1",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "one pixel showing at the screen edge counts as a window you can grab"
+ },
+ {
+  "id": "geometry-first-run-not-a-little-high",
+  "file": "step2html/gui/geometry.py",
+  "old": "max(0, (screen_h - h) // 3)",
+  "new": "max(0, (screen_h - h) // 2)",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "a first run is centred dead centre rather than a little high"
+ },
+ {
+  "id": "geometry-centred-can-go-off-the-top-left",
+  "file": "step2html/gui/geometry.py",
+  "old": "    return max(0, (screen_w - w) // 2), max(0, (screen_h - h) // 3)",
+  "new": "    return (screen_w - w) // 2, (screen_h - h) // 3",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "a window larger than the screen is placed at a negative origin, with its title bar off it"
+ },
+ {
+  "id": "geometry-windows-is-never-asked",
+  "file": "step2html/gui/geometry.py",
+  "old": "        if w > 0 and h > 0:\n            return x, y, w, h",
+  "new": "        if w > 0 and h > 0:\n            pass",
+  "suites": [
+   "tests/test_geometry.py"
+  ],
+  "why": "the virtual desktop is never measured: every second monitor looks unplugged"
+ },
+ {
+  "id": "job-progress-never-relayed",
+  "file": "step2html/gui/job.py",
+  "old": "                self.on_progress(*payload)",
+  "new": "                pass",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "the child's progress messages are dropped, so the bar never moves"
+ },
+ {
+  "id": "job-death-reported-without-the-code",
+  "file": "step2html/gui/job.py",
+  "old": "DIED_SILENTLY = (\"the build process stopped with exit code {code}, without \"",
+  "new": "DIED_SILENTLY = (\"the build process stopped, without \"",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "a crash is reported without the exit code, which is the only fact in it"
+ },
+ {
+  "id": "job-death-never-noticed",
+  "file": "step2html/gui/job.py",
+  "old": "        if self.proc is not None and not self.proc.is_alive():",
+  "new": "        if self.proc is not None and self.proc.is_alive():",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "a child that dies hard is never noticed: the window pumps an empty channel for ever"
+ },
+ {
+  "id": "job-cancel-does-not-kill-the-child",
+  "file": "step2html/gui/job.py",
+  "old": "            if self.proc.is_alive():\n                self.proc.terminate()",
+  "new": "            if self.proc.is_alive():\n                pass",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "Cancel forgets the child instead of killing it - the build runs on, invisibly"
+ },
+ {
+  "id": "job-pump-says-running-when-never-started",
+  "file": "step2html/gui/job.py",
+  "old": "                return False\n        return self.proc is not None",
+  "new": "                return False\n        return True",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "pumping a job that was never started claims a child is running"
+ },
+ {
+  "id": "editing-copy-and-paste-swapped",
+  "file": "step2html/gui/editing.py",
+  "old": "LAYOUT_BLIND_KEYS = {67: \"<<Copy>>\", 86: \"<<Paste>>\", 88: \"<<Cut>>\", 65: \"<<SelectAll>>\"}",
+  "new": "LAYOUT_BLIND_KEYS = {67: \"<<Paste>>\", 86: \"<<Copy>>\", 88: \"<<Cut>>\", 65: \"<<SelectAll>>\"}",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "Ctrl+C pastes and Ctrl+V copies under a non-Latin layout"
+ },
+ {
+  "id": "editing-latin-layout-pastes-twice",
+  "file": "step2html/gui/editing.py",
+  "old": "    if str(getattr(event, \"keysym\", \"\")).lower() == chr(keycode).lower():",
+  "new": "    if str(getattr(event, \"keysym\", \"\")).lower() == chr(keycode).upper():",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "under a Latin layout the handler no longer declines, so Tk's binding and this one both fire"
+ },
+ {
+  "id": "editing-a-typed-character-is-a-shortcut",
+  "file": "step2html/gui/editing.py",
+  "old": "    if char.isprintable() and char.strip():",
+  "new": "    if char.isprintable() and not char.strip():",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "AltGr (Ctrl+Alt on some layouts) typing a character is taken for a shortcut"
+ },
+ {
+  "id": "editing-menu-paste-copies-instead",
+  "file": "step2html/gui/editing.py",
+  "old": "EDIT_MENU = ((\"Cut\", \"<<Cut>>\"), (\"Copy\", \"<<Copy>>\"), (\"Paste\", \"<<Paste>>\"),",
+  "new": "EDIT_MENU = ((\"Cut\", \"<<Cut>>\"), (\"Copy\", \"<<Copy>>\"), (\"Paste\", \"<<Copy>>\"),",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the menu item labelled Paste copies"
+ },
+ {
+  "id": "editing-menu-pops-while-a-build-runs",
+  "file": "step2html/gui/editing.py",
+  "old": "    if frozen():\n        return None",
+  "new": "    if frozen():\n        return edit_menu(widget)",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the edit menu comes up on a field that a running build has frozen"
+ },
+ {
+  "id": "editing-shortcuts-never-bound",
+  "file": "step2html/gui/editing.py",
+  "old": "    widget.bind(\"<Control-KeyPress>\", layout_blind_shortcut)",
+  "new": "    pass",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the handler is written and never bound: nothing carries it to any widget"
+ },
+ {
+  "id": "app-the-log-gets-an-edit-menu",
+  "file": "step2html/gui/app.py",
+  "old": "        editing.attach_shortcuts(self.log_view)",
+  "new": "        editing.attach(self.log_view)",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the read-only log offers Cut and Paste, which do nothing"
+ },
+ {
+  "id": "app-fields-lose-the-frozen-flag",
+  "file": "step2html/gui/app.py",
+  "old": "            editing.attach(field, self._frozen)",
+  "new": "            editing.attach(field)",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the fields are wired without the window's frozen flag, so the menu comes up mid-build"
+ },
+ {
+  "id": "app-the-bar-is-never-fed",
+  "file": "step2html/gui/app.py",
+  "old": "        self.progress[\"value\"] = value",
+  "new": "        pass",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "progress reaches the window and never reaches the bar"
+ },
+ {
+  "id": "app-the-label-never-reaches-the-status",
+  "file": "step2html/gui/app.py",
+  "old": "        if label:\n            self.status.set(label)",
+  "new": "        if label:\n            pass",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the status line never says which phase is running"
+ },
+ {
+  "id": "app-busy-does-not-disable",
+  "file": "step2html/gui/app.py",
+  "old": "                widget.state([\"disabled\"] if running else [\"!disabled\"])",
+  "new": "                widget.state([\"!disabled\"] if running else [\"disabled\"])",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "every field stays live during a build, editing Options that were already taken"
+ },
+ {
+  "id": "app-nothing-is-toggleable",
+  "file": "step2html/gui/app.py",
+  "old": "        walk(self.root)\n        return out",
+  "new": "        return out",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "_busy walks an empty list, so nothing is disabled during a build and nothing says so"
+ },
+ {
+  "id": "app-greying-inverted",
+  "file": "step2html/gui/app.py",
+  "old": "        self.budget_entry.state(\n            [\"!disabled\"] if self.budget_mode.get() == \"fixed\" else [\"disabled\"])",
+  "new": "        self.budget_entry.state(\n            [\"disabled\"] if self.budget_mode.get() == \"fixed\" else [\"!disabled\"])",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the size box is greyed exactly when it is the one that matters"
+ },
+ {
+  "id": "app-out-field-not-corrected",
+  "file": "step2html/gui/app.py",
+  "old": "        if target != opts.out:\n            self.out_path.set(target)",
+  "new": "        if False:\n            self.out_path.set(target)",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the field goes on promising a name without .html while the pipeline writes another"
+ },
+ {
+  "id": "app-empty-budget-guard-off",
+  "file": "step2html/gui/app.py",
+  "old": "                raise ValueError(\"a size in MB is needed for 'No larger than'\")",
+  "new": "                pass",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "an empty size box is refused only by float()'s own complaint, in its own words"
+ },
+ {
+  "id": "app-a-bad-number-is-a-traceback",
+  "file": "step2html/gui/app.py",
+  "old": "        except ValueError as exc:",
+  "new": "        except TypeError as exc:",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a number that cannot be read escapes Generate as a traceback instead of a line in the log"
+ },
+ {
+  "id": "app-no-step-guard-off",
+  "file": "step2html/gui/app.py",
+  "old": "        if not opts.step:",
+  "new": "        if opts.step is None:",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "Generate with no STEP chosen starts a child process that can only fail"
+ },
+ {
+  "id": "app-cancel-says-nothing",
+  "file": "step2html/gui/app.py",
+  "old": "        self.job.cancel()\n        self.log(\"warning: cancelled\")\n        self._finish(\"Cancelled\")",
+  "new": "        self.job.cancel()\n        self._finish(\"Cancelled\")",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "cancelling leaves no line in the log saying so"
+ },
+ {
+  "id": "app-the-result-is-never-opened",
+  "file": "step2html/gui/app.py",
+  "old": "        if self.open_when_done.get():\n            self.open_result(Path(output))",
+  "new": "        if False:\n            self.open_result(Path(output))",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "'Open when finished' is ticked and nothing opens"
+ },
+ {
+  "id": "app-remembered-position-ignored",
+  "file": "step2html/gui/app.py",
+  "old": "        remembered = parse(self.settings.geometry)",
+  "new": "        remembered = None",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the window forgets where it was and is centred on every start"
+ },
+ {
+  "id": "app-offscreen-position-restored-anyway",
+  "file": "step2html/gui/app.py",
+  "old": "            if reachable(w, h, x, y, self._screen()):",
+  "new": "            if True:",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a place on a monitor since unplugged is restored, and the window opens where nobody can reach it"
+ },
+ {
+  "id": "app-the-move-is-not-remembered",
+  "file": "step2html/gui/app.py",
+  "old": "        if parse(geometry) is not None:\n            self._last_normal_geometry = geometry",
+  "new": "        if parse(geometry) is not None:\n            pass",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "dragging the window is never recorded, so it comes back where it was two sessions ago"
+ },
+ {
+  "id": "settings-the-file-is-ignored",
+  "file": "step2html/gui/settings.py",
+  "old": "            data = json.loads(Path(path).read_text(encoding=\"utf-8\"))",
+  "new": "            data = {}",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the settings file is read and thrown away: every window comes up with the defaults"
+ },
+ {
+  "id": "settings-a-bool-becomes-a-string",
+  "file": "step2html/gui/settings.py",
+  "old": "                kw[f.name] = (bool(value) if isinstance(f.default, bool)\n                              else str(value))",
+  "new": "                kw[f.name] = str(value)",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a false in the file comes back as the string 'False', which is true - every tick box comes up ticked"
+ },
+ {
+  "id": "settings-an-absent-file-raises",
+  "file": "step2html/gui/settings.py",
+  "old": "        except Exception:\n            return cls()",
+  "new": "        except json.JSONDecodeError:\n            return cls()",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a first run, with no settings file yet, raises out of the window's __init__"
+ },
+ {
+  "id": "settings-a-refused-folder-raises",
+  "file": "step2html/gui/settings.py",
+  "old": "        except OSError:\n            return False",
+  "new": "        except OSError:\n            raise",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a folder that will not take the file stops the window closing"
+ },
+ {
+  "id": "logpane-severity-is-not-the-first-word",
+  "file": "step2html/gui/logpane.py",
+  "old": "    if low.startswith(ERROR_PREFIXES):",
+  "new": "    if ERROR_PREFIXES[0] in low:",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "any line with 'error' anywhere in it goes red, including one saying an error was fixed"
+ },
+ {
+  "id": "logpane-the-severity-given-is-ignored",
+  "file": "step2html/gui/logpane.py",
+  "old": "        severity = severity or severity_of(message)",
+  "new": "        severity = severity_of(message)",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "a line the window colours by hand - the summary, as success - is left plain"
+ },
+ {
+  "id": "logpane-the-log-is-left-editable",
+  "file": "step2html/gui/logpane.py",
+  "old": "        self.see(\"end\")\n        self.configure(state=\"disabled\")",
+  "new": "        self.see(\"end\")\n        self.configure(state=\"normal\")",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the log stays editable after each line, so Ctrl+V pastes into the record of the build"
+ },
+ {
+  "id": "worker-the-error-sentence-is-lost",
+  "file": "step2html/worker.py",
+  "old": "        channel.put((\"error\", str(exc)))",
+  "new": "        channel.put((\"error\", \"the build failed\"))",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the one sentence the user could act on is replaced by a shrug"
+ },
+ {
+  "id": "worker-the-summary-says-nothing",
+  "file": "step2html/worker.py",
+  "old": "    summary = f\"Done: {report.out.name}, {report.size:,} bytes\"",
+  "new": "    summary = \"Done\"",
+  "suites": [
+   "tests/test_gui.py"
+  ],
+  "why": "the window never says what was written or how big it is"
+ }
+]

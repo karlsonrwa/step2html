@@ -4,6 +4,134 @@
 
 Part of [step2html](../README.md). Every full pass over the code, newest first, with what it found and what was done about it.
 
+### 21 Sep 2026, at 0.15.0
+
+Two questions this time, both answered by measuring rather than reading:
+does the suite check anything, and why does the program die on a newer
+`cadquery-ocp`.
+
+**The suite, broken on purpose.** Reading a test cannot tell whether it
+checks anything — every test looks purposeful — so the code each suite claims
+to protect was broken the way a real defect would break it, in a private copy
+of the tree, and the suite run there. The rows live in `tests/mutations.json`
+(161 of them, one per decision), `tools/mutate.py` applies them to copies
+under `work/mutants/` in parallel and reports `caught` or `SURVIVED`, and
+`tests/test_mutations.py`, the eleventh suite in `run_all`, applies nothing but
+checks every day that each row still matches its file exactly once — a row
+whose pattern a refactor broke is a rule with no evidence, and the runner's
+`REFUSED` is easy to skim past. The full table: 161 of 161 caught, 164 s of wall for 629 s of suite runs on four copies on four copies.
+Before the tests were fixed, 65 of the 150 of the first rows survived. The
+suite went from 10 suites and 257 checks to 11 and 338 in the ten old ones plus the sentinel's 681, and the baseline
+run from 21 s to 22 s. What the survivors found, by kind:
+
+* **Checks that could not fail.** The automatic deflection was checked to be
+  "inside its clamp" — which is the last line of the function restated; a
+  3-4-12 box with its 13 mm diagonal pins it now. "The placed part is out at
+  its transform" was true with every transform dropped, because the board alone
+  reaches that far; the pin's top at z = 8 and the plate's far edge at y = 50 are
+  the numbers only the placement can give. "The face table ascends" was true of
+  a table of noughts. In the viewer, `fitDist` was compared with a formula built
+  from the viewer's own `FOV`, so halving the field of view passed; `rotX(0)`
+  is the identity whichever sign the sine has; a transposed or mirrored rotation
+  is still orthonormal; "there are eight named views" said nothing about where
+  any of them looks; and with one triangle and one circle in the fixture,
+  "nearest wins" and "named by its number" were both zero.
+* **Paths nothing walked.** Both tessellation paths call the same
+  `vertex_normals`, so comparing them compared a bug with itself: every normal
+  flipped inward passed. Now the mesh's signed volume is checked against OCCT's
+  own, every normal against the facets that meet at it. The per-face check of
+  the glTF export lined up 21 of 21 faces on the fixture, so its refusal, the
+  node-walk fallback and the winding correction were dead — the same document
+  is now handed over with the parts in the other order (12 of 21 line up) and
+  the result compared with the pure walk. The rescue of a refused face was never
+  entered because the fixture needs no patching; a forced empty face enters it.
+  The edge base, the curve fallback of `collect_edges`, the joining of two rims
+  into one circle, a title with markup in it, the commit and `+edits` in the
+  version stamp: none had a witness. In the viewer, the payload fixture had
+  every count but one at zero, so the triangles, edges and face table were never
+  read back, and the 4 MiB base64 slicing loop ran once; the camera's aspect
+  floor, both distance clamps, the vertical scale, the depth ranges, the
+  behind-the-camera guard and the whole perspective projection beyond one
+  matrix entry had no check; the pick's origin offset, aspect and canvas
+  position, and a triangle exactly at a face start, likewise; `layout.js` was
+  not loaded at all.
+* **Witnessed only by the golden.** Three mutations of `tessellate` — a flat
+  face table, a lost edge base, flipped normals — moved the payload's CRC and
+  nothing else, so the only thing the suite could have said was "not byte for
+  byte the golden one", which names no cause and reads like an OCCT change.
+  Each is now caught by a check that says what broke.
+* **Round trips.** The view in the address was decoded only from what
+  `encodeView` had produced, with values exact at three digits and an identity
+  rotation, which is symmetric; six-digit values and a real rotation now pin it.
+* **Equivalent mutants, dropped with a measurement:** the `u > 1` guard in the
+  pick's triangle test is implied by the guard after it — 78,408 cursor
+  positions over 20 triangles, both projections, four distances, not one answer
+  different.
+
+Noticed on the way and not changed: a patch for a refused face is painted from
+its face or its part, skipping the solid level that `tessellate` consults, so a
+solid-coloured part with an unmeshable face would get a grey patch; the DOM
+half of the viewer (`boot`, `gl`, `measure`, `png`, `overlays`) has no
+behavioural check at all, only `test_page`'s text greps — the inventory of its
+unchecked decisions is in the session's report, and whether a browser harness
+is worth it is a decision, not a test; `overlays.js` carries a second copy of
+`toScreen`'s pixel mapping; `parsePayload` in the page never reads the `S3DH`
+magic or the version, the page's gate is the length and the CRC in `boot.js`.
+
+The pure-Python and window suites had the same shapes. An expectation computed
+by the code under test (`int(SPAN * WEIGHTS[0])`, now the literal 420);
+`check(True, "no progress callback at all is fine")`, which cannot fail; the
+quality clamp asserted on a search whose qualities never came near either end;
+a check true of an empty list ("nothing is stuck" passed because nothing was
+toggleable); a paste test that pasted what it had just copied over the same
+selection; handlers asserted and their binding to the field never; a 90 s
+timeout doing duty as an oracle; and `virtual_screen` accepted its own
+fallback, so a version that never asks Windows passed anywhere. Of 63
+mutations of `budget`, `progress`, the window's geometry, the child process,
+the editing helpers and the window itself, 24 survived the suites as they
+were, and what they severed had no witness at all: the window's whole Cancel
+path, opening the result when the box is ticked, a remembered position on a
+monitor that is gone, a bad number or an empty budget answered with a
+traceback instead of a line in the log, the greying of fields nothing reads,
+the frozen flag on a field's own right-click, a child that Cancel let go rather
+than killed, a hole every build has taken for a refusal every time, a tick past
+its own total, `Traceback` not read as an error, the summary that names the
+file and its size, a settings file that turns a bool into a string or raises
+when absent or when its folder refuses it. Each has a check now. And none of
+it is owed to the developer's own `step2html_config.json`: with that file
+deleted all six suites pass, and the runner no longer copies it at all.
+
+**A newer `cadquery-ocp`.** A user reported that 0.14.0 runs with 7.9.3.1.1
+and not with "newer cadquery and numpy". Measured in a venv: `pip install -e .`
+today resolves `cadquery-ocp>=7.7` to **8.0.1.0.0**, OCCT 8.0, a 617 MB
+install, and the package dies at import — before the STEP is opened. Three
+binding changes, none of them numpy's (2.3.5 and 2.5.3 give byte-identical
+payloads under one OCCT):
+
+* every `NCollection` instantiation moved to one module, `OCP.collections`,
+  named after its template arguments — `TDF_LabelSequence` is
+  `Sequence_TDF_Label` there and `OCP.TDF` no longer has the old name;
+* `TopoDS.Face_s` and `Edge_s` lost their suffix; the bare names exist in both;
+* `Bnd_Box.Get()` gained an overload returning a struct that the bindings never
+  register, and pybind11 tries it first, so every call raises `Unregistered
+  type`; `CornerMin`/`CornerMax` return the same six doubles in both.
+
+The trap inside the fix: 8.0 binds two indexed shape maps, one keyed on
+`IsEqual` (orientation counts) and one on `IsSame`; 7.9's map was the second,
+and the first draws every shared edge twice — 24 edges on a cube instead of 12,
+266 on the fixture instead of 133. Fixed in `_occt.py`, `meshing.py` and
+`tessellate.py`; on 7.9 not one output byte changed (the golden's CRC and a
+real board's page compared before and after). 8.0 itself meshes one disc face
+of the fixture from the next node round and, on a real board, flips 1.3 % of
+the diagonals at the same area, so its pages differ from 7.9's in bytes and not
+in geometry: `tests/golden.json` now keeps one golden per OCCT version, and a
+golden is written only on purpose (`--golden`), never because a file or a key
+was missing. `pyproject.toml` pins `cadquery-ocp>=7.7,<9`. And the start-up
+message, which called an installed OCP with one missing name "the Python
+running this does not have OCP", now prints the OCP version and the range the
+code knows — that wording is why the report arrived without the name of the
+symbol.
+
 ### 2 Sep 2026, at 0.9.6
 
 A fourth pass, over everything, with a different question this time: not only

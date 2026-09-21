@@ -24,7 +24,16 @@ def auto_deflection(parts):
         BRepBndLib.Add_s(shape.Moved(loc), box, True)
     if box.IsVoid():
         return 0.04
-    x0, y0, z0, x1, y1, z1 = box.Get()
+    # The corners, not box.Get(). OCCT 8.0 added a Get() overload that
+    # returns a Bnd_Box::Limits struct for C++17 structured bindings, and
+    # the bindings register that struct nowhere - so pybind11 picks it over
+    # the six-tuple overload, which takes the same (self) arguments, and
+    # every call raises "Unregistered type : Bnd_Box::Limits" before the
+    # tuple is ever reached. CornerMin/CornerMax are in both versions and
+    # return the very same six doubles, so the deflection is unchanged.
+    lo, hi = box.CornerMin(), box.CornerMax()
+    x0, y0, z0 = lo.X(), lo.Y(), lo.Z()
+    x1, y1, z1 = hi.X(), hi.Y(), hi.Z()
     diag = ((x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2) ** 0.5
     return max(0.004, min(0.25, diag / 2000.0))
 
@@ -33,7 +42,9 @@ def faces(shape):
     out = []
     exp = TopExp_Explorer(shape, TopAbs_FACE)
     while exp.More():
-        out.append(TopoDS.Face_s(exp.Current()))
+        # Face, not Face_s: the bare name is the one both OCCT 7.9 and 8.0
+        # bind (see _occt.py).
+        out.append(TopoDS.Face(exp.Current()))
         exp.Next()
     return out
 

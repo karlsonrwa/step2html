@@ -8,15 +8,15 @@ from __future__ import annotations
 
 import sys
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 
 from harness import ANGULAR, check, run
-from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_B, RIM,
+from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_AT, PLATE_B, RIM,
                       coloured_assembly)
-from step2html.meshing import auto_deflection, repair_parts
+from step2html.meshing import auto_deflection, mesh_parts, repair_parts
 from step2html.tessellate import tessellate
 from step2html.xcaf import (DEFAULT_RGB, collect_parts, colour_lookup,
                             read_step)
@@ -24,6 +24,11 @@ from step2html.xcaf import (DEFAULT_RGB, collect_parts, colour_lookup,
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
 from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepGProp import BRepGProp
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+from OCP.gp import gp_Trsf, gp_Vec
+from OCP.GProp import GProp_GProps
+from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS_Compound
 
 
@@ -70,6 +75,32 @@ def main():
               f"worst component off by {n_off:.3g}")
         check(not list(Path(tmp).glob("*.glb")), "the export file is gone afterwards")
 
+        # What the per-face check is FOR: a primitive that is not this face.
+        # Every face of this fixture lines up - measured, 21 of 21, none
+        # refused - so the refusal, the fallback behind it and the winding
+        # correction are never reached by the run above, and severing the
+        # check outright left every line of it green. Hand tessellate the
+        # same document with the parts in the other order: the primitives no
+        # longer belong to the parts they are offered to, so the faces that
+        # do not line up must be refused, said out loud, and walked - and
+        # what comes out must still be the node walk's own answer.
+        odd = list(reversed(parts))
+        told = []
+        o_pos, _on, _oc, o_idx, _oe, _oei, o_stats = tessellate(
+            odd, colour_of, linear=linear, angular=angular, doc=doc,
+            log=told.append, workdir=tmp)
+        n_pos, _nn, _nc, n_idx, _ne, _nei, _nstats = tessellate(
+            odd, colour_of, linear=linear, angular=angular)
+        check(o_stats["faces_from_export"] < o_stats["faces"] and told,
+              "a primitive that is not this face is refused, and said so",
+              f"{o_stats['faces_from_export']} of {o_stats['faces']} faces "
+              f"from the export, {len(told)} warning(s)")
+        mis = (float(np.abs(np.asarray(o_pos) - np.asarray(n_pos)).max())
+               if len(o_pos) == len(n_pos) else 99.0)
+        check(mis < 1e-4 and list(o_idx) == list(n_idx),
+              "and a refused face comes back the node walk's own answer",
+              f"{len(o_pos) // 3} vs {len(n_pos) // 3} vertices, worst {mis:.3g} mm")
+
         # ---- colour ------------------------------------------------------ #
         check(BODY in seen, "the part colour survives",
               f"#{BODY[0]:02X}{BODY[1]:02X}{BODY[2]:02X}")
@@ -92,7 +123,12 @@ def main():
             builder.Add(comp, shape.Moved(loc))
         box = Bnd_Box()
         BRepBndLib.Add_s(comp, box, True)
-        rx0, ry0, rz0, rx1, ry1, rz1 = box.Get()
+        # The corners, not box.Get(): OCCT 8.0's Get() overload returns an
+        # unregistered Bnd_Box::Limits and raises before the six-tuple one is
+        # reached (see the note in meshing.auto_deflection).
+        lo, hi = box.CornerMin(), box.CornerMax()
+        rx0, ry0, rz0 = lo.X(), lo.Y(), lo.Z()
+        rx1, ry1, rz1 = hi.X(), hi.Y(), hi.Z()
         tx0, tx1 = min(pos[0::3]), max(pos[0::3])
         ty0, ty1 = min(pos[1::3]), max(pos[1::3])
         tz0, tz1 = min(pos[2::3]), max(pos[2::3])
@@ -109,8 +145,53 @@ def main():
         check(tx0 >= rx0 - slack and ty0 >= ry0 - slack and tz0 >= rz0 - slack
               and tx1 <= rx1 + slack and ty1 <= ry1 + slack and tz1 <= rz1 + slack,
               "the mesh sits inside the solid, never outside it")
-        check(tx1 > PIN_AT[0], "the placed part really is out at its transform",
-              f"model reaches x={tx1:.1f}, the pin sits at x={PIN_AT[0]:.0f}")
+        # Measured on the parts THAT ARE PLACED, not on the model as a whole:
+        # the board alone reaches x=60, so "the model reaches past the pin"
+        # is true whether or not the pin's transform was ever applied -
+        # dropping the component location left that check green. The pin is
+        # the only thing that reaches z=8 and the plate the only thing that
+        # reaches y=50, so those two numbers cannot be had without them.
+        check(abs(tz1 - (PIN_AT[2] + 6.0)) <= linear,
+              "the placed pin really is out at its transform",
+              f"model reaches z={tz1:.4g}, the pin's top is at "
+              f"z={PIN_AT[2] + 6.0:.0f}")
+        check(abs(ty1 - (PLATE_AT[1] + 10.0)) <= linear,
+              "and so is the placed plate",
+              f"model reaches y={ty1:.4g}, the plate's far edge is at "
+              f"y={PLATE_AT[1] + 10.0:.0f}")
+
+        # ---- the mesh is a solid, and wound the right way out ------------ #
+        # Everything above compares the two paths WITH EACH OTHER, so
+        # whatever they share - the winding rule, the normals, which are
+        # computed once for both - agrees with itself however wrong it is:
+        # turning every normal inside out moved nothing here until this
+        # block existed. Two second opinions instead. The signed volume of
+        # the triangles (the divergence theorem on a closed mesh) against
+        # OCCT's own volume of the same solids - it changes sign the moment
+        # the winding turns over. And every vertex normal against the
+        # triangles that meet there, by the right-hand rule, which is what
+        # the shader lights with.
+        P = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+        I = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+        va, vb, vc = P[I[:, 0]], P[I[:, 1]], P[I[:, 2]]
+        facets = np.cross(vb - va, vc - va)
+        mesh_volume = float(np.einsum("ij,ij->i", va, facets).sum()) / 6.0
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(comp, props)
+        solid_volume = props.Mass()
+        check(0.99 <= mesh_volume / solid_volume <= 1.0 + 1e-9,
+              "the triangles enclose the solid's own volume, wound outward",
+              f"{mesh_volume:.4f} mm3 of mesh against {solid_volume:.4f} mm3 "
+              f"of solid")
+        N = np.asarray(nrm, dtype=np.float64).reshape(-1, 3)
+        off_unit = float(np.abs(np.sqrt((N * N).sum(axis=1)) - 1.0).max())
+        check(off_unit < 1e-9, "every normal is a unit vector",
+              f"worst length off by {off_unit:.3g}")
+        facing = np.einsum("ij,ij->i", N[I.ravel()], np.repeat(facets, 3, axis=0))
+        wrong = int((facing <= 0).sum())
+        check(wrong == 0,
+              "and points the way its own triangles face, not into the solid",
+              f"{wrong} of {facing.size} corners point the wrong way")
 
         # ---- the circles a measurement snaps to -------------------------- #
         # Where a placement bug would hide, and the same hiding place as the
@@ -133,6 +214,25 @@ def main():
         check(all(abs(c[3] ** 2 + c[4] ** 2 + c[5] ** 2 - 1.0) < 1e-6
                   for c in circles),
               "every circle carries a unit axis")
+        # One hole is one circle however its rim is cut up or shared, which
+        # is what keeps the snap from scanning the same circle over and
+        # over. Every rim of the fixture belongs to one part alone, so the
+        # joining never happens there and switching it off changed nothing;
+        # two cylinders end to end have four rims and three circles, because
+        # the touching pair is one circle arriving twice.
+        raised = gp_Trsf()
+        raised.SetTranslation(gp_Vec(0.0, 0.0, 3.0))
+        stacked, _sr, _sl = mesh_parts(
+            [("lower", PIN, BRepPrimAPI_MakeCylinder(2.0, 3.0).Shape(),
+              TopLoc_Location()),
+             ("upper", PIN, BRepPrimAPI_MakeCylinder(2.0, 3.0).Shape(),
+              TopLoc_Location(raised))], linear, angular)
+        _sp, _sn, _sc, _si, _se, _sei, st2 = tessellate(
+            stacked, lambda _s: None, linear=linear, angular=angular)
+        zs2 = sorted(round(c[2], 6) for c in st2["circles"])
+        check(len(st2["circles"]) == 3 and zs2 == [0.0, 3.0, 6.0],
+              "two rims that are the same circle arrive as one",
+              f"{len(st2['circles'])} circles at z={zs2}")
 
         # ---- what came out ------------------------------------------------ #
         check(stats["triangles"] > 0 and stats["edges"] > 0,
@@ -141,6 +241,44 @@ def main():
         check(stats["edges_from_mesh"] > 0 and stats["edges_from_curve"] == 0,
               "every edge comes from the triangulation, none from the fallback",
               f"{stats['edges_from_mesh']} from the mesh")
+        # "From the triangulation" means exactly this: a drawn segment is
+        # not near a triangle's edge, it IS one - the same two vertices and
+        # the same straight piece between them, which is the whole reason a
+        # line needs no depth bias to sit on the surface it bounds. An
+        # edge's points are rows of the world array at THAT FACE's own base,
+        # and taking them at another face's base leaves them points of the
+        # model still: same array, same bounding box, both paths alike, so
+        # every check above stayed green and even the outline of the model
+        # came out identical. What notices is the pairing - 29 of the 133
+        # segments then joined two vertices no triangle joins.
+        tri_pairs = set()
+        for ta, tb, tc in I:
+            for u, v in ((ta, tb), (tb, tc), (tc, ta)):
+                tri_pairs.add((min(u, v), max(u, v)))
+        at = defaultdict(set)
+        for i, row in enumerate(map(tuple, P)):
+            at[row].add(i)              # faces share no vertices: one place each
+        EP = np.asarray(epos, dtype=np.float64).reshape(-1, 3)
+        stray = 0
+        for k in range(0, len(eidx), 2):
+            p0, p1 = tuple(EP[eidx[k]]), tuple(EP[eidx[k + 1]])
+            if not any((min(a, b), max(a, b)) in tri_pairs
+                       for a in at.get(p0, ()) for b in at.get(p1, ())):
+                stray += 1
+        check(len(eidx) > 0 and stray == 0,
+              "every edge segment is an edge of a triangle, not merely near one",
+              f"{stray} of {len(eidx) // 2} segments join vertices no "
+              f"triangle joins")
+        # The face table is one number per face, ascending, and it is what
+        # says which face a picked triangle is on. "Ascending" alone is true
+        # of a table of noughts, which is what a severed one is.
+        starts = stats["face_starts"]
+        check(len(starts) == stats["faces"] and starts[0] == 0
+              and all(a < b for a, b in zip(starts, starts[1:]))
+              and starts[-1] < stats["triangles"],
+              "the face table names every face once, strictly in order",
+              f"{len(starts)} entries for {stats['faces']} faces, last at "
+              f"{starts[-1]} of {stats['triangles']} triangles")
         check(not left, "every face meshed")
 
 

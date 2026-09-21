@@ -46,7 +46,10 @@ def main():
           "an error ends the run, and nothing follows it",
           f"logs={logs} errors={errors}")
 
-    job, logs, progress, done, errors = drive(fake_worker.dying)
+    # A shorter rope than the rest: the child exits at once, and the only
+    # way this takes the full timeout is the death going unnoticed - which
+    # is exactly what the next line is asking about.
+    job, logs, progress, done, errors = drive(fake_worker.dying, timeout=20)
     check(len(errors) == 1 and "exit code 3" in errors[0]
           and "crash" in errors[0] and job.finished == "died" and not done,
           "a child that dies without a word is reported with its exit code",
@@ -62,9 +65,17 @@ def main():
         time.sleep(0.02)
     check(logs == ["sleeping"] and job.running,
           "a busy child is still running after its first line")
+    child = job.proc                  # taken before: cancel forgets it
     job.cancel()
     check(not job.running and job.finished == "cancelled" and job.channel is None,
           "and Cancel stops it at once")
+    # The bookkeeping above is what the window reads, and it says "cancelled"
+    # just as happily with the terminate() taken out. Cancel is the one
+    # thing here that has to reach the operating system.
+    child.join(10)
+    check(not child.is_alive() and child.exitcode is not None,
+          "and the child is really dead, not merely let go",
+          f"alive={child.is_alive()}, exit={child.exitcode}")
 
     fresh = Job(fake_worker.chatty, (), on_log=lambda *_a: None,
                 on_progress=lambda *_a: None, on_done=lambda *_a: None,

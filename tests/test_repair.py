@@ -18,17 +18,21 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
+
 from harness import ANGULAR, area, check, run
-from fixtures import coloured_assembly
-from step2html import ConvertError
+from fixtures import PIN, RIM, coloured_assembly
+from step2html import ConvertError, meshing
 from step2html.convert import Options, convert
 from step2html.meshing import (auto_deflection, faces, mesh_parts,
                                patch_face, repair_parts)
 from step2html.tessellate import tessellate
 from step2html.xcaf import collect_parts, colour_lookup, read_step
 
+from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Tool
-from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
 from OCP.TopLoc import TopLoc_Location
 
 
@@ -105,6 +109,45 @@ def main():
                   "and the split is what was tried first at this deflection",
                   f"{len(faces(patch))} face(s)")
 
+        # ---- the rescue arm itself ---------------------------------------- #
+        # patch_face above is one half of the repair; the other half is
+        # repair_parts deciding to call it, carrying what comes back beside
+        # the part and painting it. Nothing in this fixture is refused, so
+        # that arm never ran here: severing it - patch_face replaced by None
+        # - left every check above green. Tell repair_parts that one healthy
+        # face of each part came out empty, and the arm runs end to end.
+        doc3 = read_step(step)
+        raw3, ct3 = collect_parts(doc3)
+        lin3 = auto_deflection(raw3)
+        was = meshing.empty_faces
+        meshing.empty_faces = lambda shape: [(faces(shape)[0],
+                                              area(faces(shape)[0]))]
+        try:
+            forced, rescued, over = repair_parts(raw3, colour_lookup(ct3),
+                                                 lin3, ANGULAR, lambda _m: None)
+        finally:
+            meshing.empty_faces = was
+        check(rescued == len(raw3) and not over,
+              "every face the mesher refuses is patched, and none is left over",
+              f"{rescued} patched of {len(raw3)}, {len(over)} left")
+        check(all(len(patches) == 1 for _n, _c, _s, _l, patches in forced),
+              "each patch is carried beside its own part, not merged into it",
+              str([len(p[4]) for p in forced]))
+        painted = {name: patches[0][1]
+                   for name, _c, _s, _l, patches in forced if patches}
+        check(painted.get("board") == RIM and painted.get("pin") == PIN,
+              "and takes the face's own colour, or the part's where it has none",
+              f"board {painted.get('board')}, pin {painted.get('pin')}")
+        forced_sig = []
+        for _n, _c, sh, _l, _p in forced:
+            for face in faces(sh):
+                tri = BRep_Tool.Triangulation_s(face, TopLoc_Location())
+                forced_sig.append(tri.NbTriangles() if tri is not None else 0)
+        check(forced_sig == plain_sig,
+              "and the part it patched is untouched, triangle for triangle",
+              f"{sum(1 for a, b in zip(forced_sig, plain_sig) if a != b)} of "
+              f"{len(plain_sig)} faces differ")
+
         # tessellate reads the triangulation; it does not make one. That is
         # what took the second BRepMesh out of it - 1.2 s a build on a real
         # board - and it is a contract, so it is pinned: unmeshed parts must
@@ -112,12 +155,38 @@ def main():
         doc0 = read_step(step)
         raw_parts, ct0 = collect_parts(doc0)
         unmeshed = [(n, c, sh, l, []) for n, c, sh, l in raw_parts]
-        pos0, _n0, _c0, idx0, _e0, _ei0, _st0 = tessellate(
-            unmeshed, colour_lookup(ct0), linear=auto_deflection(raw_parts),
-            angular=ANGULAR, doc=doc0)
+        lin0 = auto_deflection(raw_parts)
+        pos0, _n0, _c0, idx0, epos0, _ei0, st0 = tessellate(
+            unmeshed, colour_lookup(ct0), linear=lin0,
+            angular=ANGULAR, doc=doc0, workdir=tmp)
         check(len(pos0) == 0 and len(idx0) == 0,
               "tessellate reads a mesh, it does not make one",
               f"{len(pos0) // 3} vertices from unmeshed parts")
+        # And the other half of the same call: with no triangulation to take
+        # an edge's points from, every edge comes from the curve itself.
+        # That fallback is the one path nothing else here walks - the
+        # placement was dropped out of it and the whole suite stayed green -
+        # so it is measured where it is reached: the edges must still outline
+        # the model where it really stands, which OCCT is asked for.
+        edge = np.asarray(epos0, dtype=np.float64).reshape(-1, 3)
+        check(len(edge) > 0 and st0["edges_from_curve"] > 0
+              and st0["edges_from_mesh"] == 0,
+              "an unmeshed part still gets its edges, from the curve itself",
+              f"{st0['edges_from_curve']} from the curve, "
+              f"{st0['edges_from_mesh']} from a mesh")
+        box0 = Bnd_Box()
+        for _n, _c, sh, loc in raw_parts:
+            BRepBndLib.Add_s(sh.Moved(loc), box0, True)
+        lo, hi = box0.CornerMin(), box0.CornerMax()
+        worst = max(
+            float(np.abs(edge.min(axis=0)
+                         - np.array([lo.X(), lo.Y(), lo.Z()])).max()),
+            float(np.abs(edge.max(axis=0)
+                         - np.array([hi.X(), hi.Y(), hi.Z()])).max())
+        ) if len(edge) else 99.0
+        check(worst <= lin0,
+              "and they outline the model where it really stands",
+              f"worst corner off by {worst:.3g} mm, deflection {lin0:.3g} mm")
 
         # The auto deflection has to be a number and has to scale with the
         # model, since a fixed millimetre is the wrong unit for both a pin and
@@ -128,6 +197,26 @@ def main():
         check(0.004 <= deflection <= 0.25,
               "the automatic deflection is inside its clamp",
               f"{deflection:.4g} mm")
+        # "Inside the clamp" is what the last line of auto_deflection DOES,
+        # so that check held whatever the rule above it was: halving the
+        # divisor left it green. The rule itself is one part in 2000 of the
+        # diagonal, and a 3-4-12 box has a diagonal of exactly 13 mm - a
+        # number known here, not taken from the code - so 0.0065 mm.
+        here = TopLoc_Location()
+        known = auto_deflection([("b", PIN, BRepPrimAPI_MakeBox(3.0, 4.0, 12.0)
+                                  .Shape(), here)])
+        check(abs(known - 13.0 / 2000.0) < 1e-6,
+              "the automatic deflection is one part in 2000 of the diagonal",
+              f"{known:.6g} mm for a 13 mm diagonal")
+        # And the clamp itself, at both ends, where the rule would run off.
+        speck = auto_deflection([("s", PIN, BRepPrimAPI_MakeBox(1.0, 1.0, 1.0)
+                                  .Shape(), here)])
+        panel = auto_deflection([("p", PIN, BRepPrimAPI_MakeBox(1000.0, 1000.0,
+                                                                1000.0)
+                                  .Shape(), here)])
+        check(speck == 0.004 and panel == 0.25,
+              "and the clamp holds at both ends",
+              f"1 mm cube -> {speck:.4g} mm, 1 m cube -> {panel:.4g} mm")
 
         # A file that is not a STEP has to come back as a ConvertError and
         # nothing else. SystemExit derives from BaseException, so the worker's

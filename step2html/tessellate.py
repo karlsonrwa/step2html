@@ -425,7 +425,9 @@ def collect_edges(parts, linear, angular, world, bases, tick=None, total=1):
                 tri = BRep_Tool.Triangulation_s(face, floc)
                 exp = TopExp_Explorer(face, TopAbs_EDGE)
                 while exp.More():
-                    edge = TopoDS.Edge_s(exp.Current())
+                    # Edge, not Edge_s: the bare name is the one both OCCT
+                    # 7.9 and 8.0 bind (see _occt.py).
+                    edge = TopoDS.Edge(exp.Current())
                     exp.Next()
                     if BRep_Tool.Degenerated_s(edge):
                         continue

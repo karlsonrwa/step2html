@@ -15,6 +15,9 @@ JOBS = [
     # arithmetic is reported before seven seconds of meshing.
     ("the budget search",        TESTS / "test_budget.py"),
     ("the progress bar",         TESTS / "test_progress.py"),
+    # Applies nothing: only that every row of tests/mutations.json still
+    # matches its file, so the expensive job can still ask its questions.
+    ("the mutation table",       TESTS / "test_mutations.py"),
     ("window geometry",          TESTS / "test_geometry.py"),
     ("the viewer, in node",      TESTS / "test_viewer.py"),
     ("colours and geometry",     TESTS / "test_model.py"),

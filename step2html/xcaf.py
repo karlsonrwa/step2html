@@ -7,6 +7,8 @@ and each one was found by a board coming out grey.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from . import ConvertError
 from ._occt import (IFSelect_ReturnStatus, Quantity_Color,
                     STEPCAFControl_Reader, TCollection_AsciiString,

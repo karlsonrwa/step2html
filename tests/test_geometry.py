@@ -46,6 +46,19 @@ def main():
     check(len(screen) == 4 and all(isinstance(v, int) for v in screen)
           and screen[2] > 0 and screen[3] > 0,
           "the virtual screen is four integers with a size", str(screen))
+    # And it is MEASURED where it can be. A fallback nothing could mistake
+    # for a screen must not be what comes back on a machine that can be
+    # asked: asked only of a plausible fallback, this check passed with the
+    # whole Windows query deleted.
+    odd = (-1, -1, 1, 1)
+    got = virtual_screen(odd)
+    if sys.platform == "win32":
+        check(got != odd and got[2] >= 640 and got[3] >= 480,
+              "on Windows the virtual desktop is measured, not the fallback",
+              str(got))
+    else:
+        check(got == odd, "elsewhere the fallback is the answer, as given",
+              str(got))
 
 
 if __name__ == "__main__":

@@ -16,8 +16,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-    # OCCT, and the reason a frozen build is large.
-    "cadquery-ocp>=7.7",
+    # OCCT, and the reason a frozen build is large. Below 9 on purpose: 8.0.1
+    # arrived in September 2026 with three renamed bindings and broke 0.14.0
+    # at import for everyone who installed that month, because nothing here
+    # said which majors had been tried. 7.7 to 8.0 have; the next one gets
+    # tried here before it can land on a user.
+    "cadquery-ocp>=7.7,<9",
     # The arrays behind the normals and the payload. It arrives with
     # cadquery-ocp anyway - through vtk and matplotlib - but a transitive
     # dependency is nobody's promise, so it is declared here.

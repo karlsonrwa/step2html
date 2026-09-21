@@ -168,7 +168,13 @@ another way past the vanishing console described below.
 
 `cadquery-ocp` is OCCT. `numpy` does the array arithmetic of the normals and
 the payload, and arrives with `cadquery-ocp` anyway. Nothing else is needed,
-and nothing else is used. Tested against 7.9.3 on Python 3.12 and 3.14.
+and nothing else is used. Tested against `cadquery-ocp` 7.9.3 and 8.0.1 on
+Python 3.14 (and 7.9.3 on 3.12 earlier); the pin is `>=7.7,<9`, so the next
+major OCCT lands on nobody before it was tried here. 8.0 binds a few names
+differently - handled in `_occt.py` - and meshes one face of the test
+fixture from another starting node, so its pages differ from 7.9's in bytes
+and not in geometry: `tests/golden.json` keeps one golden per OCCT, and
+`numpy` from 2.3.5 to 2.5.3 changes nothing (measured, 21 Sep 2026).
 
 ## The GUI
 
@@ -253,7 +259,8 @@ Pass `--max-bytes none` for a single build.
 | `step2html.cmd` | starts the window with a Python of your choosing, and holds the console open if it fails |
 | `requirements.txt` | `-e .`, so one command installs the two dependencies that `pyproject.toml` declares |
 | `packaging/` | the standalone build: `build.cmd`, the PyInstaller spec, and the launcher that is the frozen entry point |
-| `tests/` | ten suites, `python tests/run_all.py`, twenty to thirty seconds; five of them - the budget search, the progress bar, window geometry, the child process and the viewer's pure modules under node - need no OCCT |
+| `tests/` | eleven suites, `python tests/run_all.py`, about thirty seconds; six of them - the budget search, the progress bar, the mutation table, window geometry, the child process and the viewer's pure modules under node - need no OCCT. `tests/mutations.json` is the table of the 161 ways the code is broken on purpose to prove the suites bite, and `tests/test_mutations.py` checks every day that each row still matches its file, so the expensive job keeps asking its questions |
+| `tools/` | `mutate.py`, the runner for that table: copies the tree under `work/mutants/`, breaks each copy one row at a time, runs the suites the row names there and reports which mutations were caught - minutes, so on purpose not part of `run_all` |
 | `docs/viewer-checklist.md` | what the tests cannot see: the gestures, run by hand on a real board after any change under `viewer/` |
 | `docs/` | the design record (`design-notes.md`), the review log (`reviews.md`), the profile (`performance.md`), the frozen build (`standalone.md`), the architecture and the plan that took the monoliths apart, and the checklist for the viewer; each of the first four also in Russian, as `.ru.md` |
 

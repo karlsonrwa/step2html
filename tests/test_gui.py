@@ -36,6 +36,32 @@ def tags_in(app):
     return used
 
 
+def loaded_or_error(path):
+    """Settings.load, or the exception it promises never to raise."""
+    try:
+        return gui.Settings.load(path)
+    except Exception as exc:              # noqa: BLE001 - that is the question
+        return exc
+
+
+def check_severity():
+    """The colour is read off the FIRST WORD, and off nothing else.
+
+    The window's own checks only ask whether a colour was used at all, which
+    a rule of "the word appears anywhere in the line" satisfies just as well
+    - and that rule paints a sentence about an error that has been fixed.
+    """
+    for text, want in (("error: no such file", "error"),
+                       ("Traceback (most recent call last):", "error"),
+                       ("  warning: two faces are missing", "warning"),
+                       ("ignored 3 faces", "warning"),
+                       ("ignoring a hole", "warning"),
+                       ("the error was in the STEP itself", None),
+                       ("Done: board.html, 12 bytes", None)):
+        got = gui.severity_of(text)
+        check(got == want, f"{text[:34]!r} is {want}", f"got {got}")
+
+
 def check_startup_failure():
     """A failure to start has to be READABLE.
 
@@ -76,6 +102,7 @@ def main():
     app = gui.App(root)
 
     check_startup_failure()
+    check_severity()
 
     # ---- every flag has a control ------------------------------------- #
     flags = {f.name for f in core.Options.__dataclass_fields__.values()}
@@ -88,6 +115,31 @@ def main():
 
     # ---- the budget radio really maps onto the flag -------------------- #
     with tempfile.TemporaryDirectory() as tmp:
+        # ---- what the window remembers, on its own ---------------------- #
+        # With a file of its own, not the one this machine happens to have:
+        # a settings test that reads the developer's own config proves
+        # nothing anywhere else.
+        cfg = Path(tmp) / "settings.json"
+        cfg.write_text('{"angle": 7, "repair": false, "budget_mb": "2",'
+                       ' "a key from a later version": 1}', encoding="utf-8")
+        kept = gui.Settings.load(cfg)
+        check(kept.repair is False and kept.angle == "7" and kept.budget_mb == "2",
+              "each field keeps its own kind, and an unknown key is ignored",
+              f"repair={kept.repair!r} angle={kept.angle!r}")
+        check(loaded_or_error(Path(tmp) / "no such file.json") == gui.Settings(),
+              "an absent settings file is the defaults, and nothing raised",
+              repr(loaded_or_error(Path(tmp) / "no such file.json"))[:60])
+        cfg.write_text("{not json at all", encoding="utf-8")
+        check(loaded_or_error(cfg) == gui.Settings(),
+              "and so is one that cannot be read", repr(loaded_or_error(cfg))[:60])
+        try:
+            refused = gui.Settings().save(Path(tmp) / "no such folder" / "x.json")
+        except OSError as exc:
+            refused = exc
+        check(refused is False,
+              "a folder that refuses the file is False, not an exception that "
+              "stops the window closing", repr(refused))
+
         step = coloured_assembly(Path(tmp) / "fixture.step")
         app.set_step(str(step))
         check(app.out_path.get() == str(step.with_suffix(".html")),
@@ -149,10 +201,26 @@ def main():
         # ---- press Generate, and pump until the child answers ---------- #
         app.generate()
         check(app.proc is not None, "a child process was started")
+        # The rule lives in core, and the window applies it to the FIELD as
+        # well - so what is written there is the name that will be written
+        # on disk. The file landing where it should says nothing about this:
+        # core would have appended the suffix either way.
+        check(app.out_path.get() == str(out),
+              "and the field now shows the name that will really be written",
+              app.out_path.get())
         # ttk state FLAGS, not the "state" option: setting the flag leaves
         # the option reading "normal", so asking the option would pass while
         # the control was in fact live.
-        live = [c.winfo_class() for c in app._toggleable()
+        # First that the list is a list of controls at all: "none of them is
+        # live" and "none of them is stuck" are both true of an empty one,
+        # and _toggleable is the code under test here.
+        toggleable = app._toggleable()
+        check(len(toggleable) >= 8 and app.step_entry in toggleable
+              and app.generate_button in toggleable
+              and app.cancel_button not in toggleable,
+              "the list _busy walks holds the window's controls, and not Cancel",
+              f"{len(toggleable)} widgets")
+        live = [c.winfo_class() for c in toggleable
                 if "disabled" not in c.state()]
         check(not live, "every control is disabled while running", str(live))
         check("disabled" not in app.cancel_button.state(),
@@ -182,6 +250,27 @@ def main():
         text = app.log_view.get("1.0", "end")
         check("Every face meshed" in text or "could not be meshed" in text,
               "the pipeline's own lines reached the window")
+        check(f"Done: {out.name}" in text
+              and f"{out.stat().st_size:,} bytes" in text,
+              "and the summary names the file written and its size on disk",
+              [l for l in text.splitlines() if l.startswith("Done")] or "no summary")
+
+        # ---- and it opens the result, when and only when asked --------- #
+        # Driven by hand rather than by a second conversion, and with the
+        # opening itself replaced: a real os.startfile would put a browser
+        # on the developer's screen in the middle of a test run.
+        opened = []
+        real_open, gui.App.open_result = gui.App.open_result, staticmethod(opened.append)
+        try:
+            app.open_when_done.set(True)
+            app._on_done("Done: ticked", str(out))
+            app.open_when_done.set(False)
+            app._on_done("Done: not ticked", str(out))
+        finally:
+            gui.App.open_result = real_open
+        check(opened == [out],
+              "the result is opened when the box is ticked, and only then",
+              str(opened))
 
         # ---- an error is coloured as one ------------------------------ #
         app.step_path.set(str(Path(tmp) / "nothing here.step"))
@@ -189,7 +278,14 @@ def main():
         deadline = time.time() + 60
         while app.proc is not None and time.time() < deadline:
             app.pump(); root.update(); time.sleep(0.05)
-        check("error" in tags_in(app), "a missing file is logged as an error")
+        # The ERROR LINE has to name the file, not merely the log: the
+        # window's own "Converting nothing here.step" carries the name
+        # whatever the child says back.
+        said = [l for l in app.log_view.get("1.0", "end").splitlines()
+                if l.startswith("error:")]
+        check("error" in tags_in(app) and said and "nothing here.step" in said[0],
+              "a missing file is logged as an error that names the file",
+              said[0] if said else "no error line at all")
         check("disabled" not in app.generate_button.state(),
               "Generate comes back after a failure")
         # This used to name a widget that does not exist, guarded by hasattr,
@@ -206,13 +302,75 @@ def main():
         # An empty megabyte box with "No larger than" chosen must be refused,
         # not quietly turned into no limit at all.
         app.budget_mode.set("fixed"); app.budget_mb.set("")
-        refused = False
+        # The sentence, not merely a ValueError: float("") raises one of its
+        # own, so "did it raise" passes with the guard deleted and the user
+        # gets "could not convert string to float: ''".
+        refused = ""
         try:
             app.options()
-        except ValueError:
-            refused = True
-        check(refused, "an empty size budget is refused rather than ignored")
+        except ValueError as exc:
+            refused = str(exc)
+        check("MB" in refused and "No larger than" in refused,
+              "an empty size budget is refused, in words of its own",
+              refused or "nothing raised")
         app.budget_mode.set("none")
+
+        # ---- the two boxes a setting greys ----------------------------- #
+        app.auto_deflection.set(True); app.budget_mode.set("auto")
+        app._sync_enabled()
+        check("disabled" in app.deflection_entry.state()
+              and "disabled" in app.budget_entry.state(),
+              "deflection and size are greyed when nothing reads them",
+              f"{app.deflection_entry.state()}, {app.budget_entry.state()}")
+        app.auto_deflection.set(False); app.budget_mode.set("fixed")
+        app._sync_enabled()
+        check("disabled" not in app.deflection_entry.state()
+              and "disabled" not in app.budget_entry.state(),
+              "and live when the tick and the radio say they are used",
+              f"{app.deflection_entry.state()}, {app.budget_entry.state()}")
+        app.auto_deflection.set(True); app.budget_mode.set("none")
+        app._sync_enabled()
+
+        # ---- Cancel, from the window ----------------------------------- #
+        app.step_path.set(str(step))
+        app.out_path.set(str(Path(tmp) / "cancelled.html"))
+        app.clear_log()
+        app.generate()
+        child = app.proc
+        check(child is not None, "a child was started, to be cancelled")
+        app.cancel()
+        child.join(10)
+        check(app.job is None and app.proc is None and not child.is_alive(),
+              "Cancel kills the child and the window lets the job go",
+              f"alive={child.is_alive()}, exit={child.exitcode}")
+        check(app.status.get() == "Cancelled" and "warning" in tags_in(app),
+              "and says so, in the status line and in the log",
+              f"{app.status.get()!r}, tags {sorted(tags_in(app))}")
+
+        # ---- a number that cannot be read, and no STEP at all ---------- #
+        app.budget_mode.set("fixed"); app.budget_mb.set("not a number")
+        app.clear_log()
+        try:
+            app.generate()
+            escaped = ""
+        except Exception as exc:          # noqa: BLE001 - the whole question
+            escaped = repr(exc)
+        typed = app.log_view.get("1.0", "end")
+        check(not escaped and app.job is None and "could not be read" in typed
+              and "error" in tags_in(app),
+              "a number that cannot be read is a line in the log, not a "
+              "traceback", escaped or typed.strip()[:70] or "nothing logged")
+        app.budget_mode.set("none"); app.budget_mb.set("3")
+
+        app.step_path.set("")
+        app.clear_log()
+        app.generate()
+        empty = app.log_view.get("1.0", "end")
+        check(app.job is None and "pick a STEP file" in empty,
+              "and Generate with no STEP is another", empty.strip()[:70]
+              or "nothing logged")
+        app.cancel()                  # nothing, unless the guard just let one through
+        app.step_path.set(str(step))
 
         # ---- settings survive a restart ------------------------------- #
         app.angle.set("7.5"); app.budget_mode.set("fixed"); app.budget_mb.set("3")
@@ -224,6 +382,48 @@ def main():
               and second.budget_mb.get() == "3",
               "a second window comes up with the same settings",
               f"angle={second.angle.get()} mode={second.budget_mode.get()}")
+        second.root.destroy()
+
+        # ---- and where it comes UP ------------------------------------- #
+        # The screen is asked for rather than assumed, so these hold on one
+        # monitor as well as three, and on whatever this machine has today.
+        vx, vy, vw, vh = gui.virtual_screen(
+            (0, 0, root.winfo_screenwidth(), root.winfo_screenheight()))
+        want = (700, 600, vx + 60, vy + 60)
+        gui.Settings(geometry="%dx%d+%d+%d" % want).save(gui.CONFIG)
+        placed = gui.App(tk.Toplevel(root))
+        placed.root.update_idletasks()
+        check(gui.parse(placed.root.winfo_geometry()) == want,
+              "a remembered position still on a screen is where it comes back",
+              placed.root.winfo_geometry())
+
+        # And it is dragging it that is remembered, not the position it was
+        # restored to: <Configure> keeps the last non-maximized rectangle.
+        moved = f"640x540+{vx + 120}+{vy + 120}"
+        placed.root.geometry(moved)
+        placed.root.update()
+        placed.save_config()
+        check(gui.Settings.load(gui.CONFIG).geometry == moved,
+              "and where it was last moved to is what gets written down",
+              gui.Settings.load(gui.CONFIG).geometry)
+        placed.root.destroy()
+
+        # A monitor that has been unplugged: the remembered place cannot be
+        # grabbed any more, so it is not used - and the log says why.
+        gui.Settings(geometry=f"620x855+{vx - 9000}+{vy - 9000}").save(gui.CONFIG)
+        lost = gui.App(tk.Toplevel(root))
+        lost.root.update_idletasks()
+        here = gui.parse(lost.root.winfo_geometry())
+        check(here is not None and gui.reachable(*here, (vx, vy, vw, vh)),
+              "one on a monitor that is gone is centred where it can be grabbed",
+              lost.root.winfo_geometry())
+        deadline = time.time() + 3
+        while "off-screen" not in lost.log_view.get("1.0", "end") and time.time() < deadline:
+            root.update(); time.sleep(0.05)
+        check("off-screen" in lost.log_view.get("1.0", "end"),
+              "and the log says why it is not where it was left",
+              lost.log_view.get("1.0", "end").strip()[:70] or "nothing logged")
+        lost.root.destroy()
 
     root.destroy()
 

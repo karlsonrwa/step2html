@@ -61,8 +61,21 @@ def main():
     ph.tick(0, 2, "meshing pin")
     check(seen[-1][2].endswith("meshing pin"), "a named part is a label as given")
     ph.tick(2, 2, "meshed")
-    check(seen[-1][0] == int(SPAN * WEIGHTS[0]) and seen[-1][2].endswith("meshed"),
-          "and meshed is the whole of the first phase", str(seen[-1]))
+    # 420, not int(SPAN * WEIGHTS[0]): an expectation computed from the very
+    # constant under test agrees with whatever that constant is changed to.
+    # Meshing is 42% of a build, and the end of it is 42% of the bar.
+    check(seen[-1][0] == 420 and seen[-1][2].endswith("meshed"),
+          "and meshed is the whole of the first phase, 42% of the bar",
+          str(seen[-1]))
+
+    # A stage that reports more done than it planned - the face count grows
+    # while it works - must not push the bar past the end of its own phase.
+    over = []
+    past = Phaser(lambda v, _t, _l: over.append(v))
+    past.next_build()
+    past.tick(9, 4, "meshing")
+    check(over == [420], "a tick past its own total stops at the end of the phase",
+          str(over))
 
     alone = []
     single = Phaser(lambda v, t, l: alone.append(l), planned=1)
@@ -72,9 +85,17 @@ def main():
     check(all("build" not in l for l in alone),
           "with one build planned the labels do not count builds", str(alone))
 
+    # check(True, ...) was here, which cannot fail. What is claimed is that
+    # the calls go nowhere quietly, so that is what is asked.
     silent = Phaser(None)
-    silent.start("x"); silent.next_build(); silent.phase(2); silent.done()
-    check(True, "no progress callback at all is fine")
+    try:
+        silent.start("x"); silent.next_build(); silent.phase(2); silent.done()
+        quiet = silent.progress(1, SPAN, "x") is None
+    except Exception as exc:                      # noqa: BLE001 - the point
+        quiet = f"raised {exc!r}"
+    check(quiet is True,
+          "no progress callback at all is fine: the calls go nowhere quietly",
+          str(quiet))
 
 
 if __name__ == "__main__":

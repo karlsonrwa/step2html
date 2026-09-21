@@ -76,6 +76,15 @@ def main():
     check(any("refused" in line for line in lines),
           "and the log says it was refused for that")
 
+    # A hole the FIRST build already has is the floor, not a refusal. Every
+    # build here opens the same 1 mm2, and the search must still refine -
+    # otherwise a model with one unmeshable face gets no search at all.
+    build, calls = synthetic(hole=(0.0, 1e9))
+    out = search(build, budget)
+    check(out.fitted and out.best.quality > 1.0 and out.best.holes > 0,
+          "a hole every build has is the floor, not a refusal every time",
+          f"kept q={out.best.quality:.3g} with {out.best.holes} mm2 of hole")
+
     # ---- nothing fits: the smallest built goes back, and says so -------- #
     build, calls = synthetic()
     lines = []
@@ -97,11 +106,22 @@ def main():
         search(build, budget)
         check(len(calls) <= MAX_BUILDS, f"never more than {MAX_BUILDS} builds at alpha {alpha}",
               f"{len(calls)}")
-    build, calls = synthetic()
-    out = search(build, budget)
-    check(all(0.15 <= q <= 24.0 for q in calls),
+    # The clamp only shows where the fit asks for something absurd, and a
+    # budget in reach never does: taken off the runs that do, a gigabyte
+    # (which wants a mesh a thousand times finer) and ten bytes (a thousand
+    # times coarser). Asked of `budget` alone this passed with the clamp
+    # deleted, because nothing ever came near it.
+    wide, wide_calls = synthetic()
+    search(wide, 10 ** 9)
+    tiny, tiny_calls = synthetic()
+    search(tiny, 10)
+    asked = wide_calls + tiny_calls
+    check(all(0.15 <= q <= 24.0 for q in asked),
           "every quality asked for is inside the clamp",
-          str([round(q, 2) for q in calls]))
+          str([round(q, 2) for q in asked]))
+    check(24.0 in asked and 0.15 in asked,
+          "and both ends of it are really reached, or that proves nothing",
+          str(sorted({round(q, 2) for q in asked})))
 
 
 if __name__ == "__main__":
