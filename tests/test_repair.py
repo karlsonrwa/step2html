@@ -15,13 +15,12 @@ shows up immediately.
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
 
-from harness import ANGULAR, area, check, run
-from fixtures import PIN, RIM, coloured_assembly
+from harness import ANGULAR, area, check, run, scratch
+from fixtures import PIN, PLATE_A, RIM, coloured_assembly
 from step2html import ConvertError, meshing
 from step2html.convert import Options, convert
 from step2html.meshing import (auto_deflection, faces, mesh_parts,
@@ -57,7 +56,7 @@ def build(step, repair):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
+    with scratch() as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
         plain_sig, _s0, _l0, plain_edges, plain_tris = build(step, repair=False)
         fixed_sig, _s1, left, fixed_edges, fixed_tris = build(step, repair=True)
@@ -135,9 +134,14 @@ def main():
               str([len(p[4]) for p in forced]))
         painted = {name: patches[0][1]
                    for name, _c, _s, _l, patches in forced if patches}
-        check(painted.get("board") == RIM and painted.get("pin") == PIN,
-              "and takes the face's own colour, or the part's where it has none",
-              f"board {painted.get('board')}, pin {painted.get('pin')}")
+        # The plate's colours sit on its two solids and on no face and no
+        # part - the shape a real board arrives in - so a patch on it is
+        # painted only if the repair asks the solid, as tessellate does.
+        check(painted.get("board") == RIM and painted.get("pin") == PIN
+              and painted.get("plate") == PLATE_A,
+              "and takes the face's own colour, else its solid's, else the part's",
+              f"board {painted.get('board')}, pin {painted.get('pin')}, "
+              f"plate {painted.get('plate')}")
         forced_sig = []
         for _n, _c, sh, _l, _p in forced:
             for face in faces(sh):

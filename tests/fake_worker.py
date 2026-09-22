@@ -28,6 +28,13 @@ def dying(channel):
     os._exit(3)
 
 
+def silent(channel):
+    # One line, then a normal return: exit code 0 and no result. A child
+    # that runs into an early exit inside something it imported looks
+    # like this, and it is not a conversion that finished.
+    channel.put(("log", "quiet"))
+
+
 def slow(channel):
     channel.put(("log", "sleeping"))
     time.sleep(60)

@@ -1294,8 +1294,8 @@
  {
   "id": "job-pump-says-running-when-never-started",
   "file": "step2html/gui/job.py",
-  "old": "                return False\n        return self.proc is not None",
-  "new": "                return False\n        return True",
+  "old": "            return False\n        return self.proc is not None",
+  "new": "            return False\n        return True",
   "suites": [
    "tests/test_job.py"
   ],
@@ -1610,5 +1610,837 @@
    "tests/test_gui.py"
   ],
   "why": "the window never says what was written or how big it is"
+ },
+ {
+  "id": "meshing-patch-ignores-solid-colour",
+  "file": "step2html/meshing.py",
+  "old": "            patches.append((piece, colour_of(face)\n                            or solid_rgb.get(by_solid.FindIndex(face))\n                            or rgb))",
+  "new": "            patches.append((piece, colour_of(face) or rgb))",
+  "suites": [
+   "tests/test_repair.py"
+  ],
+  "why": "a patch on a solid-coloured part skips the solid level and comes out in the part's colour or grey"
+ },
+ {
+  "id": "job-channel-left-open",
+  "file": "step2html/gui/job.py",
+  "old": "                self.channel.close()",
+  "new": "                pass",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "the queue is dropped but never closed, so every conversion leaves a live queue and its pipe behind; job.channel is None either way"
+ },
+ {
+  "id": "cli-converts-another-file",
+  "file": "step2html/cli.py",
+  "old": "        step=str(args.step),",
+  "new": "        step=str(args.step) + \".step\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "the file named on the command line is not the file converted"
+ },
+ {
+  "id": "cli-output-ignored",
+  "file": "step2html/cli.py",
+  "old": "        out=str(args.out) if args.out else \"\",",
+  "new": "        out=\"\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "-o is accepted and the page is written beside the STEP anyway"
+ },
+ {
+  "id": "cli-title-ignored",
+  "file": "step2html/cli.py",
+  "old": "        title=args.title or \"\",",
+  "new": "        title=\"\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--title is accepted and the page is headed with the file name"
+ },
+ {
+  "id": "cli-deflection-ignored",
+  "file": "step2html/cli.py",
+  "old": "        deflection=str(args.deflection),",
+  "new": "        deflection=\"auto\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--deflection is accepted and the mesh is the automatic one"
+ },
+ {
+  "id": "cli-angle-ignored",
+  "file": "step2html/cli.py",
+  "old": "        angle=args.angle,",
+  "new": "        angle=15.0,",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--angle is accepted and every mesh is built at 15 degrees"
+ },
+ {
+  "id": "cli-max-bytes-ignored",
+  "file": "step2html/cli.py",
+  "old": "        max_bytes=str(args.max_bytes),",
+  "new": "        max_bytes=\"auto\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--max-bytes none still searches against the size of the STEP"
+ },
+ {
+  "id": "cli-no-repair-inverted",
+  "file": "step2html/cli.py",
+  "old": "        repair=not args.no_repair,",
+  "new": "        repair=args.no_repair,",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--no-repair turns the repair ON, and leaving it off turns it off"
+ },
+ {
+  "id": "cli-read-only-ignored",
+  "file": "step2html/cli.py",
+  "old": "        read_only=args.read_only,",
+  "new": "        read_only=False,",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--read-only is accepted and the file is left writable"
+ },
+ {
+  "id": "cli-deflection-default-is-a-number",
+  "file": "step2html/cli.py",
+  "old": "    ap.add_argument(\"--deflection\", default=\"auto\", metavar=\"MM\",",
+  "new": "    ap.add_argument(\"--deflection\", default=\"0.02\", metavar=\"MM\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "without --deflection the mesh is a fixed 0.02 mm instead of one scaled to the size of the model"
+ },
+ {
+  "id": "cli-angle-default-changed",
+  "file": "step2html/cli.py",
+  "old": "    ap.add_argument(\"--angle\", type=float, default=15.0, metavar=\"DEG\",",
+  "new": "    ap.add_argument(\"--angle\", type=float, default=3.0, metavar=\"DEG\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "the default angular deflection is not the 15 degrees the help promises, so every build is finer and larger than asked for"
+ },
+ {
+  "id": "cli-angle-takes-any-text",
+  "file": "step2html/cli.py",
+  "old": "    ap.add_argument(\"--angle\", type=float, default=15.0, metavar=\"DEG\",",
+  "new": "    ap.add_argument(\"--angle\", type=str, default=15.0, metavar=\"DEG\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--angle abc is accepted and reaches the pipeline as text"
+ },
+ {
+  "id": "cli-max-bytes-default-lifted",
+  "file": "step2html/cli.py",
+  "old": "    ap.add_argument(\"--max-bytes\", default=\"auto\", metavar=\"N\",",
+  "new": "    ap.add_argument(\"--max-bytes\", default=\"none\", metavar=\"N\",",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "the size budget is off by default, so nothing is ever refined to fit and one coarse build is what comes out"
+ },
+ {
+  "id": "cli-step-optional",
+  "file": "step2html/cli.py",
+  "old": "    ap.add_argument(\"step\", type=Path, help=\"the STEP file to convert\")",
+  "new": "    ap.add_argument(\"step\", type=Path, nargs=\"?\", help=\"the STEP file to convert\")",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "step2html with no arguments at all is not refused"
+ },
+ {
+  "id": "cli-error-loses-its-sentence",
+  "file": "step2html/cli.py",
+  "old": "        raise SystemExit(str(exc))",
+  "new": "        raise SystemExit(1)",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "a conversion that cannot be done exits with a bare code and never says what was wrong"
+ },
+ {
+  "id": "cli-pipeline-log-swallowed",
+  "file": "step2html/cli.py",
+  "old": "        report = convert(opts, log=print)",
+  "new": "        report = convert(opts)",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "nothing the pipeline logs reaches the terminal: the command line goes silent for the whole build"
+ },
+ {
+  "id": "cli-exit-code-not-zero",
+  "file": "step2html/cli.py",
+  "old": "    return 0",
+  "new": "    return 1",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "a conversion that worked reports failure to whatever ran it"
+ },
+ {
+  "id": "cli-summary-without-the-share",
+  "file": "step2html/cli.py",
+  "old": "    share = f\" ({100.0 * report.size / source:.0f}% of the STEP)\" if source else \"\"",
+  "new": "    share = \"\"",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "the summary no longer says how the page compares with the STEP, which is the one number the budget is about"
+ },
+ {
+  "id": "cli-read-only-not-announced",
+  "file": "step2html/cli.py",
+  "old": "          f\"{' (read-only)' if opts.read_only else ''}\")",
+  "new": "          \"\")",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "a file made read-only is reported as an ordinary one, and the next save over it fails for no stated reason"
+ },
+ {
+  "id": "cli-version-is-not-the-tools",
+  "file": "step2html/cli.py",
+  "old": "                    version=f\"step2html {tool_version()}\")",
+  "new": "                    version=\"step2html 9.9.9\")",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "--version prints a number that is not the one stamped into the pages, so a bug report names the wrong source"
+ },
+ {
+  "id": "main-module-does-not-run-the-cli",
+  "file": "step2html/__main__.py",
+  "old": "sys.exit(main())",
+  "new": "sys.exit(2)",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "python -m step2html exits 2 without converting anything"
+ },
+ {
+  "id": "init-version-is-not-three-numbers",
+  "file": "step2html/__init__.py",
+  "old": "__version__ = \"0.",
+  "new": "__version__ = \"v0.",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "the version stamped into every page is not three numbers, so a page cannot say which release wrote it"
+ },
+ {
+  "id": "init-drags-occt-in",
+  "file": "step2html/__init__.py",
+  "old": "    with the sentence, the window into a red line in the log.\n    \"\"\"",
+  "new": "    with the sentence, the window into a red line in the log.\"\"\"\n\n\nfrom step2html import convert  # noqa: E402,F401",
+  "suites": [
+   "tests/test_cli.py"
+  ],
+  "why": "importing the package imports OCP, so the window can no longer catch a missing OCP and say so in a dialog - the one thing gui/app.py is built around"
+ },
+ {
+  "id": "job-quiet-exit-is-still-running",
+  "file": "step2html/gui/job.py",
+  "old": "            code = self.proc.exitcode\n            self._close(\"died\")",
+  "new": "            code = self.proc.exitcode\n            if code == 0:\n                return True\n            self._close(\"died\")",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "a child that ends with exit code 0 and no result is taken for still running - the window waits for ever"
+ },
+ {
+  "id": "job-quiet-exit-called-a-crash",
+  "file": "step2html/gui/job.py",
+  "old": "            self.on_error((DIED_SILENTLY if code else ENDED_QUIETLY)\n                          .format(code=code))",
+  "new": "            self.on_error(DIED_SILENTLY.format(code=code))",
+  "suites": [
+   "tests/test_job.py"
+  ],
+  "why": "a quiet exit with code 0 is reported as a crash inside OCCT"
+ },
+ {
+  "id": "viewer-boot-loading-split",
+  "file": "step2html/viewer/boot.js",
+  "old": "phase==='decode' ? f*20 : 20+f*80",
+  "new": "phase==='decode' ? f*40 : 20+f*80",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the base64 is a fifth of the wait: the counter must reach 20 % when it ends, not 40"
+ },
+ {
+  "id": "viewer-boot-inflate-share",
+  "file": "step2html/viewer/boot.js",
+  "old": "20+f*80",
+  "new": "20+f*60",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and the inflating the other four fifths, so the counter ends at 100 %"
+ },
+ {
+  "id": "viewer-boot-counter-gate",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(p!==shown){ shown=p; loadpct.textContent=p+' %'; }",
+  "new": "if(p||!p){ shown=p; loadpct.textContent=p+' %'; }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the counter is written only when the number changes: inflate reports 100 % twice and the DOM must be touched once"
+ },
+ {
+  "id": "viewer-boot-crc-gate",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(bin.length!==RAW||crc!==CRC)",
+  "new": "if(bin.length!==RAW)",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "bytes that do not match the checksum beside them are damage, and the page promises to say so rather than draw them"
+ },
+ {
+  "id": "viewer-boot-magic-not-named",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(e&&e.kind==='magic') return fail(MSG.magic+' ('+e.got+')');",
+  "new": "if(e&&e.kind==='magic') return fail(MSG.unpack);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a file that is not this tool's is not a damaged one, and the message must name the cause"
+ },
+ {
+  "id": "viewer-boot-version-not-named",
+  "file": "step2html/viewer/boot.js",
+  "old": "    if(e&&e.kind==='version')\n      return fail(MSG.format.replace('{got}',e.got).replace('{reads}',FORMAT));",
+  "new": "    if(e&&e.kind==='version')\n      return fail(MSG.unpack);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "nor is a model in a format this page cannot read: the message names both versions"
+ },
+ {
+  "id": "viewer-boot-webgl-message",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(!gl) return fail(MSG.gl);",
+  "new": "if(gl===undefined) return fail(MSG.gl);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a browser with no WebGL2 is told so in words, rather than the page dying on a null context with nothing on the screen"
+ },
+ {
+  "id": "viewer-boot-restore-view",
+  "file": "step2html/viewer/boot.js",
+  "old": "const saved=decodeView(location.hash);",
+  "new": "const saved=null;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a page opened at a #v= address opens at that view"
+ },
+ {
+  "id": "viewer-boot-restore-not-touched",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(saved){ Object.assign(cam,saved); touched=true; }",
+  "new": "if(saved){ Object.assign(cam,saved); }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and keeps it: without the mark the first resize fits the model again and the restored view is gone before it is seen"
+ },
+ {
+  "id": "viewer-boot-hash-debounce",
+  "file": "step2html/viewer/boot.js",
+  "old": "    },400);",
+  "new": "    },4000);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the address follows the view within 400 ms of it stopping"
+ },
+ {
+  "id": "viewer-boot-history-replace",
+  "file": "step2html/viewer/boot.js",
+  "old": "history.replaceState(null,'',encodeView(cam))",
+  "new": "history.pushState(null,'',encodeView(cam))",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "by replacing the entry: turning a model must not fill the back button with a hundred of them"
+ },
+ {
+  "id": "viewer-boot-click-threshold",
+  "file": "step2html/viewer/boot.js",
+  "old": "e.clientY-p.downY) < 4){",
+  "new": "e.clientY-p.downY) < 40){",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a turn of four pixels is a turn, not a click, and moving the centre of rotation underneath it is a surprise"
+ },
+ {
+  "id": "viewer-boot-orbit-gain",
+  "file": "step2html/viewer/boot.js",
+  "old": "mul(mul(rotX(dy*.008),rotY(dx*.008)),cam.rot)",
+  "new": "mul(mul(rotX(dy*.016),rotY(dx*.008)),cam.rot)",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a pixel of drag is .008 radians, the same both ways"
+ },
+ {
+  "id": "viewer-boot-orbit-post-multiplied",
+  "file": "step2html/viewer/boot.js",
+  "old": "cam.rot=orthonormalise(mul(mul(rotX(dy*.008),rotY(dx*.008)),cam.rot));",
+  "new": "cam.rot=orthonormalise(mul(cam.rot,mul(rotX(dy*.008),rotY(dx*.008))));",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the turn is about the axes of the SCREEN, so it is applied before the camera's own rotation and not after it"
+ },
+ {
+  "id": "viewer-boot-wheel-law",
+  "file": "step2html/viewer/boot.js",
+  "old": "cam.dist*Math.exp(e.deltaY*.0012)",
+  "new": "cam.dist*Math.exp(e.deltaY*.0024)",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the wheel is exponential at .0012 a notch, so every notch is the same fraction"
+ },
+ {
+  "id": "viewer-boot-marker-held",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(ptrs.size===1 && !(e.button===2||e.shiftKey)) showMarker(0);",
+  "new": "if(ptrs.size===1 && !(e.button===2||e.shiftKey)) showMarker(500);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the centre of rotation is held up for the WHOLE of a turn, however long it lasts - 0 means no fade"
+ },
+ {
+  "id": "viewer-boot-key-modifier-guard",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(e.ctrlKey||e.altKey||e.metaKey) return;",
+  "new": "if(e.ctrlKey&&e.altKey&&e.metaKey) return;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "ctrl-1 and alt-2 belong to the browser, not to the viewer"
+ },
+ {
+  "id": "viewer-boot-keys-off-by-one",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(n>=1&&n<=VIEWS.length){ showView(n-1); return; }",
+  "new": "if(n>=1&&n<=VIEWS.length){ showView(n%VIEWS.length); return; }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "key 3 is the third view of the menu, not the fourth"
+ },
+ {
+  "id": "viewer-boot-showview-home-first",
+  "file": "step2html/viewer/boot.js",
+  "old": "cam=home();                       // pivot back to the middle, and refit",
+  "new": "void 0;                           // pivot back to the middle, and refit",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a named view puts the centre of rotation back in the middle: without home() it keeps wherever the last click left it"
+ },
+ {
+  "id": "viewer-boot-showview-refit",
+  "file": "step2html/viewer/boot.js",
+  "old": "cam.dist=fitDist(cam.rot,Math.max(.2,cv.clientWidth/cv.clientHeight),half);",
+  "new": "cam.dist=Math.max(cam.dist,0);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and fits the model at THAT orientation afterwards, not at the home one"
+ },
+ {
+  "id": "viewer-boot-escape-clears",
+  "file": "step2html/viewer/boot.js",
+  "old": "    else if(e.key==='Escape'){ closeMenu(); marks=[]; markCir=[]; labelAt=null;\n                               overlay(); }",
+  "new": "    else if(e.key==='Escape'){ closeMenu();\n                               overlay(); }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "Escape clears the measurement as well as closing the menu - one key, one place"
+ },
+ {
+  "id": "viewer-boot-measure-third-click",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(marks.length>=2){ marks=[]; markCir=[]; labelAt=null; }",
+  "new": "if(marks.length>=3){ marks=[]; markCir=[]; labelAt=null; }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a third click starts a fresh measurement rather than adding to the one on screen"
+ },
+ {
+  "id": "viewer-boot-theme-system",
+  "file": "step2html/viewer/boot.js",
+  "old": "light = themeMode==='system' ? !sysDark.matches : themeMode==='light';",
+  "new": "light = themeMode==='system' ? sysDark.matches : themeMode==='light';",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "on System the page is light when the system is not dark"
+ },
+ {
+  "id": "viewer-boot-edge-radios-live",
+  "file": "step2html/viewer/boot.js",
+  "old": "if(!nei) document.querySelectorAll('input[name=edge]')",
+  "new": "if(nei) document.querySelectorAll('input[name=edge]')",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the edge radios are disabled for a model with no edge lines, and live for one that has them"
+ },
+ {
+  "id": "viewer-boot-refit-when-touched",
+  "file": "step2html/viewer/boot.js",
+  "old": "const settle=()=>{chooseLayout(bar,body);if(!touched)cam=home();draw();};",
+  "new": "const settle=()=>{chooseLayout(bar,body);cam=home();draw();};",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a camera the user has moved is never refitted behind their back"
+ },
+ {
+  "id": "viewer-boot-dblclick-keeps-touched",
+  "file": "step2html/viewer/boot.js",
+  "old": "cv.addEventListener('dblclick',()=>{touched=false;cam=home();draw()});",
+  "new": "cv.addEventListener('dblclick',()=>{cam=home();draw()});",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and a double click gives the view back to the page, so the next resize fits it again"
+ },
+ {
+  "id": "viewer-gl-mvp-order",
+  "file": "step2html/viewer/gl.js",
+  "old": "const MVP=mul(P,MV);",
+  "new": "const MVP=mul(MV,P);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "MVP is the projection times the model view: the other way round nothing is drawn where the model is"
+ },
+ {
+  "id": "viewer-gl-highlight-from",
+  "file": "step2html/viewer/gl.js",
+  "old": "const from=faceAt[o.hoverFace]*3;",
+  "new": "const from=faceAt[o.hoverFace];",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the hovered face's triangles start at faceAt[i]*3 - the table is in triangles and the draw call in indices"
+ },
+ {
+  "id": "viewer-gl-highlight-to",
+  "file": "step2html/viewer/gl.js",
+  "old": "const to=(o.hoverFace+1<nfa ? faceAt[o.hoverFace+1]*3 : ni);",
+  "new": "const to=ni;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and stop at the next face's first triangle, or hovering one face lights up everything after it"
+ },
+ {
+  "id": "viewer-gl-edge-colour-theme",
+  "file": "step2html/viewer/gl.js",
+  "old": "gl.uniform3fv(uECol,o.light?[.10,.13,.17]:[.03,.04,.05]);",
+  "new": "gl.uniform3fv(uECol,o.light?[.03,.04,.05]:[.10,.13,.17]);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the edges take their colour from the theme, each its own"
+ },
+ {
+  "id": "viewer-gl-clear-colour",
+  "file": "step2html/viewer/gl.js",
+  "old": "clearColor(c){ gl.clearColor(c[0],c[1],c[2],1); },",
+  "new": "clearColor(c){ gl.clearColor(c[2],c[1],c[0],1); },",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and the background is the theme's colour, channel for channel"
+ },
+ {
+  "id": "viewer-gl-buffer-dpr",
+  "file": "step2html/viewer/gl.js",
+  "old": "const bw=Math.round(w*dpr), bh=Math.round(h*dpr);",
+  "new": "const bw=Math.round(w*dpr*2), bh=Math.round(h*dpr);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the drawing buffer is the canvas at the device's pixel ratio, no larger"
+ },
+ {
+  "id": "viewer-overlays-marker-through-toscreen",
+  "file": "step2html/viewer/overlays.js",
+  "old": "  const s=toScreen(MV,P,w,h,pv);",
+  "new": "  const s=toScreen(P,MV,w,h,pv);",
+  "suites": [
+   "tests/test_viewer.py",
+   "tests/test_browser.py"
+  ],
+  "why": "the marker is placed by the same mapping the rest of the page projects with, and with its arguments the right way round"
+ },
+ {
+  "id": "viewer-overlays-marker-behind-guard",
+  "file": "step2html/viewer/overlays.js",
+  "old": "  const s=toScreen(MV,P,w,h,pv);\n  if(!s) return;",
+  "new": "  const s=toScreen(MV,P,w,h,pv)||[0,0];",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "a pivot behind the camera has no pixel: the marker stays where it was rather than jumping to the corner"
+ },
+ {
+  "id": "viewer-overlays-axes-origin",
+  "file": "step2html/viewer/overlays.js",
+  "old": "const O=44, L=30;",
+  "new": "const O=40, L=30;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the triad is drawn from the middle of its 88-pixel box"
+ },
+ {
+  "id": "viewer-overlays-axes-y-up",
+  "file": "step2html/viewer/overlays.js",
+  "old": "const ex=O+arm.x*L, ey=O-arm.y*L;          // y is up on screen",
+  "new": "const ex=O+arm.x*L, ey=O+arm.y*L;          // y is up on screen",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and y runs UP the screen, so the triad agrees with the model"
+ },
+ {
+  "id": "viewer-overlays-axes-depth-order",
+  "file": "step2html/viewer/overlays.js",
+  "old": ".sort((p,q)=>p.z-q.z);",
+  "new": ".sort((p,q)=>q.z-p.z);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "back to front: SVG has no z-index, so the arm pointing away must be appended first"
+ },
+ {
+  "id": "viewer-overlays-marker-fade-zero",
+  "file": "step2html/viewer/overlays.js",
+  "old": "    if(fadeAfter) timer=setTimeout(()=>marker.classList.remove('on'),\n                                   fadeAfter);",
+  "new": "    timer=setTimeout(()=>marker.classList.remove('on'),\n                     fadeAfter);",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "fadeAfter 0 means held, not faded at once: it is what keeps the marker up for the whole of a drag"
+ },
+ {
+  "id": "viewer-measure-decimals",
+  "file": "step2html/viewer/measure.js",
+  "old": "const DP=3, ZERO=5e-4;",
+  "new": "const DP=2, ZERO=5e-4;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the reading carries three decimals, in millimetres"
+ },
+ {
+  "id": "viewer-measure-zero",
+  "file": "step2html/viewer/measure.js",
+  "old": "ZERO=5e-4;      // below half of the last digit shown, say zero",
+  "new": "ZERO=5e-9;      // below half of the last digit shown, say zero",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and a leg below half of the last digit shown is printed as nought, without a sign"
+ },
+ {
+  "id": "viewer-measure-leg-threshold",
+  "file": "step2html/viewer/measure.js",
+  "old": "const worth = s0 && s1 && Math.abs(deltas[i])>5e-3;",
+  "new": "const worth = s0 && s1 && Math.abs(deltas[i])>-1;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "a leg of no length is not drawn at all, rather than drawn as a dot with a number on it"
+ },
+ {
+  "id": "viewer-measure-rim-samples",
+  "file": "step2html/viewer/measure.js",
+  "old": "for(let k=0;k<=48;k++){",
+  "new": "for(let k=0;k<=24;k++){",
+  "suites": [
+   "tests/test_viewer.py",
+   "tests/test_browser.py"
+  ],
+  "why": "a caught rim is 48 samples round the circle, closed"
+ },
+ {
+  "id": "viewer-measure-rim-refusal",
+  "file": "step2html/viewer/measure.js",
+  "old": "    if(!s) return '';",
+  "new": "    if(!s) continue;",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "and no path at all where a sample is behind the camera, rather than a ring with a piece of it missing"
+ },
+ {
+  "id": "viewer-measure-snap-ring",
+  "file": "step2html/viewer/measure.js",
+  "old": "const sp=m.snapNow?project(m.snapNow.p):null;",
+  "new": "const sp=m.snapNow?project(m.snapNow.n):null;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the ring that says what a click would take is on the circle's CENTRE, which is what the click will place"
+ },
+ {
+  "id": "viewer-measure-label-clamp",
+  "file": "step2html/viewer/measure.js",
+  "old": "L[0]=Math.max(lw/2+2, Math.min(W-lw/2-2, L[0]));",
+  "new": "L[0]=Math.max(lw/2+2, Math.min(W+lw/2-2, L[0]));",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the reading is clamped into the view, so a window narrowed after it was dragged does not leave it off the edge"
+ },
+ {
+  "id": "viewer-measure-lead",
+  "file": "step2html/viewer/measure.js",
+  "old": "const worthLead=Math.hypot(mx-sx,my-sy)>8 && t<1;",
+  "new": "const worthLead=Math.hypot(mx-sx,my-sy)>800 && t<1;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and joined to the measurement by a lead when it sits away from it"
+ },
+ {
+  "id": "viewer-png-name",
+  "file": "step2html/viewer/png.js",
+  "old": "a.download=(p.title||'view')+'.png';",
+  "new": "a.download=(p.title||'view')+'.jpg';",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the file is named after the page's title, with .png on it"
+ },
+ {
+  "id": "viewer-png-type",
+  "file": "step2html/viewer/png.js",
+  "old": "},'image/png');",
+  "new": "},'image/jpeg');",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and it is a PNG"
+ },
+ {
+  "id": "viewer-png-size",
+  "file": "step2html/viewer/png.js",
+  "old": "out.width=cv.width; out.height=cv.height;",
+  "new": "out.width=Math.round(cv.width/2); out.height=cv.height;",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "the size of the canvas in device pixels, not half of it"
+ },
+ {
+  "id": "viewer-png-redraw",
+  "file": "step2html/viewer/png.js",
+  "old": "function savePng(p){\n  p.draw();",
+  "new": "function savePng(p){",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "drawn again before it is copied: the buffer is empty once the frame has been composited"
+ },
+ {
+  "id": "viewer-png-crosshair-always",
+  "file": "step2html/viewer/png.js",
+  "old": "if(p.marker.classList.contains('on')){",
+  "new": "if(p.marker.classList.contains('on')||true){",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "and the centre of rotation is in the picture only while it is on the screen"
+ },
+ {
+  "id": "viewer-payload-magic-unchecked",
+  "file": "step2html/viewer/payload.js",
+  "old": "if(magic!==MAGIC) throw {kind:'magic',got:magic};",
+  "new": "if(magic!==magic) throw {kind:'magic',got:magic};",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "bytes that are not S3DH are refused before any count is read from a fixed offset"
+ },
+ {
+  "id": "viewer-payload-version-unchecked",
+  "file": "step2html/viewer/payload.js",
+  "old": "if(ver!==FORMAT) throw {kind:'version',got:ver};",
+  "new": "if(ver<0) throw {kind:'version',got:ver};",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "and so is a format this page was not written to read"
+ },
+ {
+  "id": "viewer-payload-short-guard",
+  "file": "step2html/viewer/payload.js",
+  "old": "if(bin.length<48) throw {kind:'magic',got:'too short'};",
+  "new": "if(bin.length<0) throw {kind:'magic',got:'too short'};",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "bytes too few to hold a header are refused, not read past the end of the buffer"
+ },
+ {
+  "id": "viewer-pick-ray-origin-distance",
+  "file": "step2html/viewer/pick.js",
+  "old": "ny*cam.oh, span*4]",
+  "new": "ny*cam.oh, span*2]",
+  "suites": [
+   "tests/test_page.py"
+  ],
+  "why": "the orthographic ray starts span*4 in front of the model, the same distance the near plane can be pushed to; and the check for it must read the CODE, because the comment above that line says span*4 too and would pass with the number changed"
+ },
+ {
+  "id": "viewer-hash-pivot-z-from-y",
+  "file": "step2html/viewer/hash.js",
+  "old": "pivot:[p[13],p[14],p[15]]};",
+  "new": "pivot:[p[13],p[14],p[14]]};",
+  "suites": [
+   "tests/test_viewer.py"
+  ],
+  "why": "the sixteenth field is the pivot's z: a round trip through encodeView cannot see a field read twice, a written-out address can"
+ },
+ {
+  "id": "viewer-boot-measuring-click-holds-the-ring",
+  "file": "step2html/viewer/boot.js",
+  "old": "        showMarker(400);\n      }\n      else if(target){ setPivot(cam,lastMV,target); draw(); showMarker(1200); }",
+  "new": "      }\n      else if(target){ setPivot(cam,lastMV,target); draw(); showMarker(1200); }",
+  "suites": [
+   "tests/test_browser.py"
+  ],
+  "why": "every press on the canvas puts the centre of rotation up with no fade, because a turn may be starting; a click in measuring mode places a point and moves no centre, so the ring must be let go of on the way up - without this it stays until the next ordinary release and goes into a saved picture with it"
  }
 ]

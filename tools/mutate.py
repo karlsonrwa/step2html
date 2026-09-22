@@ -6,18 +6,30 @@
     python tools/mutate.py budget-target edges-  # rows whose id contains a piece
     python tools/mutate.py --list --changed      # show the selection, run nothing
     python tools/mutate.py --spec work/rows.json # a table kept somewhere else
+    [--workers N] [--exclude PAT ...] [--data REL ...] [--timeout S] [--keep]
 
 Each mutation is {id, file, old, new, suites, why}: `file` and every suite are
-paths from the repository root.  `old` must occur exactly once in the file, or
-the mutation is refused (an unasserted replacement proves nothing).  A suite is
-CAUGHT when its exit code is non-zero with the mutation in place; a mutation is
-caught when any of its suites catches it.
+paths from the repository root.  `old` must occur exactly
+once in the file, or the mutation is refused (an unasserted replacement proves
+nothing).  A suite is CAUGHT when its exit code is non-zero with the mutation in
+place; a mutation is caught when any of its suites catches it.  An `id` on the
+command line selects every row whose id contains it.
 
-Nothing here ever writes into the working tree.  Every worker owns a private
-COPY of it under work/mutants/run-<time>-<pid>/w<i>/ and breaks that; the
-copies run in parallel; the mutated file is restored from the bytes read before
-the write and the restore is proved by SHA-256.  A killed run leaves a folder
-under work/ and nothing else.
+Nothing here ever writes into the tree under --root.  Every worker owns a
+private COPY of it under <root>/work/mutants/run-<time>-<pid>/w<i>/ and breaks
+that; the copies run in parallel; the mutated file is restored from the bytes
+read before the write and the restore is proved by SHA-256.  A killed run
+leaves a folder under work/ and nothing else.
+
+WHAT A COPY IS.  The tree minus IGNORE and --exclude, plus DATA: the files the
+suites read from outside version control - boards, dumps, recorded inputs -
+named one by one, here in DATA when the harness is copied into a project or
+with --data on the command line.  A copy has only what is under version
+control plus what you deliberately give it - that is the point: a check that
+passes only thanks to something the developer's tree happens to hold (a
+settings file, a stale extract, a page built last month) fails on the copy,
+where it should.  A DATA file that is not there is named at the start, because
+the suites reading it will skip and a skip proves nothing.
 
 Why copies (2026-09-21, BaroSim, 212 mutations): the in-place design needed a
 lock file, a leftover check, a bytecode purge and a rule that nobody edits
@@ -27,15 +39,15 @@ run, an hour lost to a stale .pyc of the same length, a mutated line that
 failed five tests.  On copies the full table went from 26.6 min in place to
 6.5-6.8 min on 4-8 copies, and two mutations that had counted as "caught"
 turned out to survive: one lived in a branch dead behind a flag, one was caught
-only by the developer's gitignored settings file.  A copy has only what is
-under version control plus what you deliberately give it - that is the point.
+only by the developer's gitignored settings file.
 
 This file is the shared harness of the test-audit skill
-(~/.claude/skills/test-audit/mutate.py) with three lines of its own: the
-default table is tests/mutations.json, the default root is this repository,
-and neither input/ - 69 MB of the user's boards, which no suite reads - nor
-the window's own settings file travels into a copy.  The cheap sentinel that
-proves this job is still asking its questions is tests/test_mutations.py.
+(~/.claude/skills/test-audit/mutate.py, re-derived by work/resync_mutate.py)
+with a few lines of its own: the default table is tests/mutations.json, the
+default root is this repository, and neither input/ - 69 MB of the user's
+boards, which no suite reads - nor the window's own settings file travels
+into a copy.  The cheap sentinel that proves this job is still asking its
+questions is tests/test_mutations.py.
 
 ----------------------------------------------------------------------------
 Traps this harness handles, each of which has cost a real run:
@@ -60,6 +72,12 @@ Traps this harness handles, each of which has cost a real run:
 6. A REFUSED MUTATION IS NOT A PASS: the pattern stopped matching because the
    file was refactored, and the rule has had no proof since.  Counted as
    unproven and named at the end.
+7. A SUITE THAT NEVER FINISHES.  A mutation can turn a decoder into an endless
+   loop or leave a page that never reports ready.  Each suite gets three times
+   its baseline plus two minutes (or --timeout); past that its whole process
+   tree is killed - node, Chrome and their helpers included - and the row is
+   HUNG: not a verdict, listed with the unproven, so the row is given a suite
+   that fails cleanly instead (AllegroBaseStructure, 2026-09-22).
 ----------------------------------------------------------------------------
 """
 from __future__ import annotations
@@ -88,6 +106,11 @@ ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1",
 IGNORE = ("__pycache__", "*.pyc", ".git", "work", "build", "dist",
           ".pytest_cache", "node_modules", ".venv", "venv",
           "input", "*.egg-info", "step2html_config.json")
+# What the suites read outside version control, given to every copy by name
+# (paths relative to --root).  Fill it in when this file is copied into a
+# project; --data adds to it for one run.
+DATA: tuple = ()
+HUNG = None                      # the exit code of a suite that never finished
 
 
 def sha(data: bytes) -> str:
@@ -100,26 +123,53 @@ def read_source(path: Path) -> tuple:
     return data.decode("utf-8").replace("\r\n", "\n"), b"\r\n" in data, data
 
 
-def copy_tree(root: Path, dst: Path, exclude: tuple = ()) -> int:
-    """Copy `root` into `dst` minus IGNORE and `exclude`; the number of files.
+def copy_tree(root: Path, dst: Path, exclude: tuple = (), data: tuple = ()) -> int:
+    """Copy `root` into `dst` minus IGNORE and `exclude`, plus DATA and `data`;
+    the number of files.
 
     copytree copies with copy2, so mtimes survive: anything a suite builds
     afterwards (a DLL, a cache) is newer than every source.
     """
     ignore = shutil.ignore_patterns(*IGNORE, *exclude)
     shutil.copytree(root, dst, ignore=ignore, symlinks=True)
+    for rel in (*DATA, *data):
+        src = root / rel
+        if src.is_file():
+            (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst / rel)
     return sum(1 for p in dst.rglob("*") if p.is_file())
 
 
-def run_suite(copy: Path, suite: str) -> tuple:
-    """(exit code, seconds, output) of one suite run inside `copy`."""
+def missing_data(root: Path, data: tuple = ()) -> list:
+    return [rel for rel in (*DATA, *data) if not (root / rel).is_file()]
+
+
+def kill_tree(proc: subprocess.Popen) -> None:
+    """The child and everything it started - node, Chrome and its helpers."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       capture_output=True)
+    else:
+        proc.kill()
+
+
+def run_suite(copy: Path, suite: str, limit: float = 1200.0) -> tuple:
+    """(exit code, seconds, output) of one suite run inside `copy`; the exit
+    code is HUNG when the suite did not finish within `limit` seconds."""
     script = copy / suite
     if not script.exists():
         return 2, 0.0, f"no such suite: {suite}"
     started = time.monotonic()
-    done = subprocess.run([PY, "-B", str(script)], capture_output=True, text=True,
-                          cwd=str(copy), env=ENV, encoding="utf-8", errors="replace")
-    return done.returncode, time.monotonic() - started, (done.stdout or "") + (done.stderr or "")
+    proc = subprocess.Popen([PY, "-B", str(script)], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, cwd=str(copy), env=ENV,
+                            encoding="utf-8", errors="replace")
+    try:
+        out, _ = proc.communicate(timeout=limit)
+    except subprocess.TimeoutExpired:
+        kill_tree(proc)
+        out, _ = proc.communicate()
+        return HUNG, time.monotonic() - started, out or ""
+    return proc.returncode, time.monotonic() - started, out or ""
 
 
 def left_behind(root: Path, spec: list) -> list:
@@ -135,12 +185,12 @@ def left_behind(root: Path, spec: list) -> list:
     return dirty
 
 
-def mutate_once(copy: Path, m: dict, base: dict) -> tuple:
+def mutate_once(copy: Path, m: dict, base: dict, limits: dict) -> tuple:
     """Apply `m` in `copy`, run its suites there, put the file back.
 
-    Returns (verdict, id, seconds, detail); verdict is "caught", "SURVIVED"
-    or "REFUSED".  Raises RuntimeError if the restore did not reproduce the
-    original bytes - the copy is then unfit for further jobs.
+    Returns (verdict, id, seconds, detail); verdict is "caught", "SURVIVED",
+    "REFUSED" or "HUNG".  Raises RuntimeError if the restore did not reproduce
+    the original bytes - the copy is then unfit for further jobs.
     """
     path = copy / m["file"]
     if not path.exists():
@@ -153,18 +203,26 @@ def mutate_once(copy: Path, m: dict, base: dict) -> tuple:
     mutated = text.replace(m["old"], m["new"])
     if crlf:
         mutated = mutated.replace("\n", "\r\n")
-    spent, caught, fails = 0.0, [], ""
+    spent, caught, hung, fails = 0.0, [], [], ""
     try:
         path.write_bytes(mutated.encode("utf-8"))
         for suite in m["suites"]:
             if base.get(suite):
                 continue                         # already red on the clean tree
-            code, seconds, out = run_suite(copy, suite)
+            code, seconds, out = run_suite(copy, suite, limits.get(suite, 1200.0))
             spent += seconds
+            if code is HUNG:
+                hung.append(suite)
+                continue
             if code:
                 caught.append(suite)
+                # The first FAIL line names the assertion that bit; a suite
+                # that died on a SystemExit has no FAIL line and its reason
+                # is the last thing it printed - show that, not "exit 1".
                 lines = [l.strip() for l in out.splitlines() if "FAIL" in l]
-                fails = lines[0][:90] if lines else f"exit {code}"
+                last = [l.strip() for l in out.splitlines() if l.strip()]
+                fails = (lines[0] if lines else
+                         f"exit {code}: {last[-1]}" if last else f"exit {code}")[:110]
                 break                            # one suite is enough
     finally:
         path.write_bytes(original)
@@ -177,6 +235,8 @@ def mutate_once(copy: Path, m: dict, base: dict) -> tuple:
         raise RuntimeError(f"{m['file']} was not restored in {copy}")
     if caught:
         return "caught", m["id"], spent, f"{caught[0]}: {fails}"
+    if hung:
+        return "HUNG", m["id"], spent, f"{hung[0]} never finished - not a verdict"
     return "SURVIVED", m["id"], spent, "green in " + ", ".join(m["suites"])
 
 
@@ -236,9 +296,15 @@ def parse(argv: list) -> argparse.Namespace:
                         "left the machine unusable)")
     p.add_argument("--exclude", action="append", default=[], metavar="PAT",
                    help="glob of names never copied (repeatable), e.g. research or *.pdf")
+    p.add_argument("--data", action="append", default=[], metavar="REL",
+                   help="a file outside version control the suites read, copied into "
+                        "every copy (repeatable; relative to --root)")
     p.add_argument("--changed", nargs="?", const="HEAD", metavar="REV",
                    help="only rows whose file, suite or spec entry differ from REV "
                         "(default HEAD)")
+    p.add_argument("--timeout", type=float, default=None, metavar="S",
+                   help="seconds a suite may take before it is HUNG "
+                        "(default: 3 x its baseline + 120, or 1200 without one)")
     p.add_argument("--list", action="store_true", help="print the selection, run nothing")
     p.add_argument("--keep", action="store_true", help="leave the copies behind")
     p.add_argument("--no-baseline", action="store_true")
@@ -250,6 +316,7 @@ def main(argv: list) -> int:
     root = Path(args.root).resolve()
     spec_path = Path(args.spec)
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    data = tuple(args.data)
     muts = select(spec, args.ids)
     if args.changed is not None:
         changed = changed_paths(root, args.changed)
@@ -261,7 +328,7 @@ def main(argv: list) -> int:
         return 0 if args.changed is not None else 2
     if args.list:
         for m in muts:
-            print(f"  {m['id']:<40} {m['file']:<36} {', '.join(m['suites'])}")
+            print(f"  {m['id']:<44} {m['file']:<36} {', '.join(m['suites'])}")
         return 0
 
     invisible = [m["id"] for m in muts if m["old"] in m["new"]]
@@ -274,13 +341,19 @@ def main(argv: list) -> int:
         for line in dirty:
             print("   ", line)
         return 3
+    absent = missing_data(root, data)
+    if absent:
+        print("not here, so the suites that read them will skip (a skip proves nothing):")
+        for rel in absent:
+            print("   ", rel)
 
     workers = max(1, min(args.workers, len(muts)))
     run_dir = root / "work" / "mutants" / f"run-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
     copies = [run_dir / f"w{i}" for i in range(workers)]
     started = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as copier:
-        files = sum(copier.map(lambda c: copy_tree(root, c, tuple(args.exclude)), copies))
+        files = sum(copier.map(
+            lambda c: copy_tree(root, c, tuple(args.exclude), data), copies))
     print(f"root: {root}\n{workers} copies under {run_dir}, {files} files, "
           f"{time.monotonic() - started:.1f} s; the working tree is not touched")
 
@@ -294,7 +367,7 @@ def main(argv: list) -> int:
             return job(copy, *rest)
         except RuntimeError:
             shutil.rmtree(copy, ignore_errors=True)   # unfit: a fresh copy instead
-            copy_tree(root, copy, tuple(args.exclude))
+            copy_tree(root, copy, tuple(args.exclude), data)
             raise
         finally:
             free.put(copy)
@@ -309,18 +382,21 @@ def main(argv: list) -> int:
         else:
             print("=== baseline (clean copies) ===")
             for suite, (code, seconds, _out) in zip(suites, pool.map(
-                    lambda s: with_copy(run_suite, s), suites)):
-                base[suite], times[suite] = code, seconds
-                print(f"  {suite:<40} exit={code}  {seconds:5.1f}s"
-                      + ("   <-- ALREADY RED" if code else ""))
+                    lambda s: with_copy(run_suite, s, args.timeout or 1200.0), suites)):
+                base[suite], times[suite] = (1 if code is HUNG else code), seconds
+                print(f"  {suite:<40} exit={'HUNG' if code is HUNG else code}  "
+                      f"{seconds:6.1f}s" + ("   <-- ALREADY RED" if code else ""))
+        limits = {s: (args.timeout if args.timeout else
+                      max(300.0, 3 * times[s] + 120.0) if times[s] else 1200.0)
+                  for s in suites}
         # Longest suites first, so the tail is not one slow suite started last.
         jobs = sorted(muts, key=lambda m: -max(times.get(s, 0.0) for s in m["suites"]))
-        futures = [pool.submit(with_copy, mutate_once, m, base) for m in jobs]
+        futures = [pool.submit(with_copy, mutate_once, m, base, limits) for m in jobs]
         try:
             for future in concurrent.futures.as_completed(futures):
                 verdict, mid, spent, detail = future.result()
                 results.append((verdict, mid, spent, detail))
-                print(f"  {verdict:<8} {mid:<40} {spent:5.1f}s  {detail}")
+                print(f"  {verdict:<8} {mid:<44} {spent:6.1f}s  {detail}", flush=True)
         except RuntimeError as exc:
             print(f"ERROR {exc}")
             return 3
@@ -334,7 +410,7 @@ def main(argv: list) -> int:
           f"{work:.0f} s of suite runs on {workers} copies")
     unproven = [r for r in results if r[0] != "caught"]
     if unproven:
-        print("not proved (a REFUSED mutation is a rule with no evidence, not a pass):")
+        print("not proved (a REFUSED or HUNG mutation is a rule with no evidence, not a pass):")
         for verdict, mid, _spent, detail in unproven:
             print(f"  {verdict:<8} {mid}: {detail}")
     return 1 if unproven else 0

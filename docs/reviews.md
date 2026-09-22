@@ -68,7 +68,7 @@ run from 21 s to 22 s. What the survivors found, by kind:
   positions over 20 triangles, both projections, four distances, not one answer
   different.
 
-Noticed on the way and not changed: a patch for a refused face is painted from
+Noticed on the way and left for the next day: a patch for a refused face is painted from
 its face or its part, skipping the solid level that `tessellate` consults, so a
 solid-coloured part with an unmeshable face would get a grey patch; the DOM
 half of the viewer (`boot`, `gl`, `measure`, `png`, `overlays`) has no
@@ -131,6 +131,45 @@ message, which called an installed OCP with one missing name "the Python
 running this does not have OCP", now prints the OCP version and the range the
 code knows — that wording is why the report arrived without the name of the
 symbol.
+
+**22 Sep 2026, at 0.16.0 - everything the pass found is fixed, and the DOM
+half of the viewer has a real check.** A patch for a refused face now takes
+its colour by the same three levels as every other face - its own, its
+solid's, its part's - through one helper, `meshing.solid_colours`, that the
+repair and `tessellate` share; proved on the plate, whose colours sit on its
+two solids and on nothing else. `tests/test_browser.py` opens the real page
+in headless Chrome (Edge where there is no Chrome; SwiftShader, `--dump-dom`,
+virtual time) and reads back the address, the DOM and the framebuffer: 71
+checks over `boot`, `gl`, `measure`, `png` and `overlays` - the counter's
+split and its gate, the payload gate, the address written 400 ms after the
+movement and by `replaceState`, the wheel law, a drag that turns about the
+screen's axes, a three-pixel click against a ten-pixel drag, the keys and the
+guard on them, the named views refitted with `oh` in step, the theme and the
+edges' colour under it, the pixel where a triangle is, the hovered face and
+only it, the marker on the pivot's projection after a pan, a measurement with
+its signed legs and the zero that is not drawn, a PNG the size of the canvas
+drawn again before it is copied, a hand-written address restored, and the
+four refusals each naming its cause. 11-17 s on an idle machine; seven pages,
+two browsers at a time, each with a profile of its own under `work/tmp`.
+`placeMarker` goes through `toScreen` instead of carrying a second copy of
+the divide; `parsePayload` refuses a payload without the `S3DH` magic or with
+another format version, and the page says so in words that name the cause,
+in `TEXT` with the other messages; `decodeView` is pinned to a hand-written
+address, which the round trip never was; the word greps in `test_page` are
+scoped to the function that does the job or replaced by the browser check -
+one of them, `span*4`, had been passing on a comment. The pivot ring, held
+up on pointerdown, now lets go after a measuring click instead of staying
+until the next release and landing in a saved PNG. The window's child
+process: the queue is proved closed on every ending, and a child that ends
+with exit code 0 without a word is reported as a death now, not taken for a
+run the window waits on for ever. `test_editing` survives eight copies at
+once - one clipboard and one foreground per session were the cause, a named
+mutex and `focus_force` the cure. `tests/test_cli.py` gives the command line
+33 checks of its own. Every suite writes its temp files under `work/tmp`,
+off C:, and reads no settings file of the developer's. The table holds 244
+rows, all caught; the runner was re-derived from the shared harness, which
+gained a timeout for a suite that never finishes. And the standalone exe is
+built again, for every version from now on - `docs/standalone.md`.
 
 ### 2 Sep 2026, at 0.9.6
 

@@ -74,11 +74,29 @@ async function inflate(b64,expect,progress){
   }catch(e){ throw {kind:'unpack'}; }
 }
 
+// What this page can read: the magic payload.py writes and the format
+// version it was written against. The two must agree with payload.py's
+// MAGIC and FORMAT_VERSION.
+const MAGIC='S3DH', FORMAT=4;
+
 // The header and the arrays behind it, as typed views. After the magic and
 // the version: seven counts and four floats, then the arrays in the order
 // the counts name them.
+//
+// The first eight bytes are ASKED, not assumed. Every count below is read
+// from a fixed offset, so bytes that are not a payload at all - another
+// file pasted in, a page written by a newer tool - came out as enormous
+// array lengths and the page then reported a damaged file, or drew
+// nothing, about a file that is whole and simply not this format. Thrown
+// with a kind, the way inflate does: boot.js turns each into words.
 function parsePayload(bin){
   const dv=new DataView(bin.buffer,bin.byteOffset,bin.byteLength);
+  if(bin.length<48) throw {kind:'magic',got:'too short'};
+  const magic=String.fromCharCode(dv.getUint8(0),dv.getUint8(1),
+                                  dv.getUint8(2),dv.getUint8(3));
+  if(magic!==MAGIC) throw {kind:'magic',got:magic};
+  const ver=dv.getUint32(4,true);
+  if(ver!==FORMAT) throw {kind:'version',got:ver};
   const nv=dv.getUint32(8,true), ni=dv.getUint32(12,true),
         nev=dv.getUint32(16,true), nei=dv.getUint32(20,true),
         nfa=dv.getUint32(24,true), ncr=dv.getUint32(28,true),

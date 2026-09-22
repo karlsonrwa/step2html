@@ -8,7 +8,8 @@ from __future__ import annotations
 from ._occt import (Bnd_Box, BRep_Tool, BRepBndLib, BRepBuilderAPI_Copy,
                     BRepGProp, BRepMesh_IncrementalMesh, BRepTools,
                     GProp_GProps, ShapeUpgrade_ShapeDivideClosed, TopAbs_FACE,
-                    TopExp_Explorer, TopLoc_Location, TopoDS)
+                    TopAbs_SOLID, TopExp_Explorer, TopLoc_Location, TopoDS,
+                    TopTools_IndexedMapOfShape)
 
 
 def auto_deflection(parts):
@@ -47,6 +48,32 @@ def faces(shape):
         out.append(TopoDS.Face(exp.Current()))
         exp.Next()
     return out
+
+
+def solid_colours(shape, colour_of):
+    """-> (faces of every coloured solid, by index; {index: rgb}).
+
+    The level of the colour lookup between a face and its part. XCAF hangs
+    one colour on the solid and lets its faces inherit it, overriding only
+    the ones that differ - a real board arrived with its body colour on the
+    solid and 11 of its 63 faces carrying nothing of their own, so those 11
+    fell straight past to the default grey: 44% of the surface. tessellate
+    consults this for every face and repair_parts for every patch, from
+    one place, so the two cannot disagree - they did, and a patch on a
+    solid-coloured part came out grey (the audit of 21 Sep 2026).
+    """
+    by_solid = TopTools_IndexedMapOfShape()
+    solid_rgb = {}
+    exp = TopExp_Explorer(shape, TopAbs_SOLID)
+    while exp.More():
+        solid = exp.Current()
+        exp.Next()
+        rgb = colour_of(solid)
+        if rgb is None:
+            continue
+        for f in faces(solid):
+            solid_rgb[by_solid.Add(f)] = rgb
+    return by_solid, solid_rgb
 
 
 def empty_faces(shape):
@@ -169,12 +196,18 @@ def repair_parts(parts, colour_of, linear, angular, log, tick=None):
         empty = empty_faces(shape)
         patches = []
         left = []
+        if empty:
+            by_solid, solid_rgb = solid_colours(shape, colour_of)
         for face, area in empty:
             piece = patch_face(face, linear, angular)
             if piece is None:
                 left.append(area)
                 continue
-            patches.append((piece, colour_of(face) or rgb))
+            # The same three levels tessellate paints a face by: its own
+            # colour, its solid's, its part's.
+            patches.append((piece, colour_of(face)
+                            or solid_rgb.get(by_solid.FindIndex(face))
+                            or rgb))
             rescued += 1
         if empty:
             log(f"  {name}: {len(empty)} face(s) the mesher refused, "

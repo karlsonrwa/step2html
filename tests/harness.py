@@ -14,6 +14,7 @@ import at the top would drag ninety megabytes into a test of arithmetic.
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 # The project root and this folder, so the pipeline and the fixtures import
@@ -26,6 +27,18 @@ for _p in (str(ROOT), str(TESTS)):
 
 ANGULAR = 15 * 3.141592653589793 / 180.0      # the CLI default, in radians
 FAILURES: list[str] = []
+
+# Where a suite puts what it writes and throws away. tempfile's default is
+# the system TEMP on C:, and the user keeps writes off that drive on purpose
+# (its endurance is finite and this suite alone writes a few megabytes a
+# run); work/ is gitignored and never travels into a mutation copy.
+SCRATCH = ROOT / "work" / "tmp"
+
+
+def scratch(prefix: str = "suite-"):
+    """A temporary directory under work/tmp, removed when the with ends."""
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    return tempfile.TemporaryDirectory(prefix=prefix, dir=str(SCRATCH))
 
 
 def check(ok, what, detail=""):

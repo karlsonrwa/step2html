@@ -82,7 +82,9 @@ function createRenderer(gl,mesh,edgeBias){
   return {
     clearColor(c){ gl.clearColor(c[0],c[1],c[2],1); },
     // One frame: the surfaces, the hovered face over itself, then the lines.
-    // o is {edges, light, hoverFace}. -> the MVP, for placing overlays.
+    // o is {edges, light, hoverFace}. Nothing comes back: the overlays are
+    // placed from MV and P through camera.js's toScreen, so that the mapping
+    // from a model point to a pixel is written once.
     draw(MV,P,o){
       const cv=gl.canvas;
       const w=cv.clientWidth,h=cv.clientHeight,dpr=Math.min(devicePixelRatio||1,2);
@@ -125,7 +127,6 @@ function createRenderer(gl,mesh,edgeBias){
         gl.drawElements(gl.LINES,nei,gl.UNSIGNED_INT,0);
         gl.depthFunc(gl.LESS);
       }
-      return MVP;
     }
   };
 }

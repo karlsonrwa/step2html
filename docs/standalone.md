@@ -24,10 +24,19 @@ Measured the same way for both — the folder wins on every launch and costs
 nothing to send, because zip compresses the same bytes the one-file bootloader
 does. What one file buys is that there is nothing to unpack by hand.
 
-Those numbers are from 0.9.6. Since 0.12.0 the pipeline uses numpy (33 MB
-on disk unpacked), which the spec used to exclude and now carries; the build
-has not been redone since, so expect the bundle to be larger by some part of
-that.
+Those numbers are from 0.9.6. Rebuilt at 0.15.0 (21 Sep 2026), by which time
+the pipeline carries numpy: the one file is **99.1 MB**, the build takes
+about two minutes, `--selftest` on a 0.78 MB board runs 10.7 s end to end
+and a command-line conversion of the same board 8.3 s, most of it the
+unpacking. The build was made into a staging folder and copied over
+`dist\step2html.exe` - PyInstaller's own cleanup of `dist\` has died with
+a locked file more than once on this machine.
+
+**Every version is built this way, and the file is never committed.** The
+tool is handed to people with no Python; for them the executable is the
+release, so a version that exists only as a checkout does not exist. And
+`dist\` is gitignored: a hundred megabytes of binary are not what a
+repository is for. The exe travels by hand.
 
 **Where the weight is**, and none of it is ours: `OCP.pyd` 94 MB, the OCCT DLLs
 it links against 65 MB, **VTK 135 MB**, Python and Tk about 12. VTK is not used

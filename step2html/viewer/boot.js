@@ -8,7 +8,8 @@
 // there is.
 const CRC=__CRC__, RAW=__RAW__;
 const MSG={old:"__OLD_BROWSER__",gl:"__NO_WEBGL__",
-           unpack:"__UNPACK_FAILED__",crc:"__CRC_FAILED__"};
+           unpack:"__UNPACK_FAILED__",crc:"__CRC_FAILED__",
+           magic:"__NOT_A_MODEL__",format:"__WRONG_FORMAT__"};
 const BG={dark:[.078,.090,.110],light:[.933,.945,.961]};
 const EDGE_BIAS=__EDGE_BIAS__;
 // Nothing here may throw. It once ended on a getElementById for an id that
@@ -37,7 +38,16 @@ async function boot(){
   catch(e){ return fail(e&&e.kind==='old' ? MSG.old : MSG.unpack); }
   if(bin.length!==RAW||crc!==CRC)
     return fail(MSG.crc+' ('+RAW+' / '+CRC.toString(16)+')');
-  const mesh=parsePayload(bin);
+  // The header is read before anything is drawn, and what it says is said
+  // plainly: a whole file in another format is not a damaged one.
+  let mesh;
+  try{ mesh=parsePayload(bin); }
+  catch(e){
+    if(e&&e.kind==='magic') return fail(MSG.magic+' ('+e.got+')');
+    if(e&&e.kind==='version')
+      return fail(MSG.format.replace('{got}',e.got).replace('{reads}',FORMAT));
+    return fail(MSG.unpack);
+  }
   const span=mesh.span, half=mesh.half, nfa=mesh.nfa, ncr=mesh.ncr,
         nei=mesh.nei, faceAt=mesh.faceAt, cir=mesh.cir;
 
@@ -82,8 +92,8 @@ async function boot(){
     const w=cv.clientWidth,h=cv.clientHeight;
     const P=projection(cam,ortho,w/h,span), MV=modelView(cam);
     lastMV=MV; lastP=P;
-    const MVP=renderer.draw(MV,P,{edges,light,hoverFace});
-    placeMarker(marker,MVP,cam.pivot,w,h);
+    renderer.draw(MV,P,{edges,light,hoverFace});
+    placeMarker(marker,MV,P,cam.pivot,w,h);
     overlay();
     paintAxes(axesSvg,cam.rot);
     rememberView();
@@ -166,6 +176,10 @@ async function boot(){
         // A third click starts a fresh measurement rather than adding to one.
         if(target){ if(marks.length>=2){ marks=[]; markCir=[]; labelAt=null; }
                     marks.push(target); markCir.push(caught); draw(); }
+        // The ring was held up on pointerdown for a turn that never came:
+        // let it go as after a miss, or it stays until the next release
+        // and lands in a saved PNG (found by the browser suite, 22 Sep 2026).
+        showMarker(400);
       }
       else if(target){ setPivot(cam,lastMV,target); draw(); showMarker(1200); }
       else showMarker(400);

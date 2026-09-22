@@ -14,16 +14,37 @@ which is why this one is mapped.
 
 Where the layout cannot be switched (not Windows) that half is skipped and
 says so; the handler's decisions are pinned by fake events either way.
+
+THREE THINGS THIS SUITE CANNOT ASSUME, each of which has failed:
+
+  * The clipboard is ONE per Windows session, and so is the foreground. The
+    mutation runner puts several copies of this suite on the machine at
+    once: measured on 2026-09-21, eight parallel copies, five failed - one
+    copy's clipboard rewritten by another between the put and the key that
+    pastes it. So the copies take turns, on a named mutex (OneAtATime), and
+    a copy takes its turn before it opens a window at all.
+  * A generated key goes to whatever TK believes has the focus, and Tk
+    believes nobody has it the moment another process's window takes the
+    foreground. Measured (work/probe_focus.py): with a second window in
+    front, focus_displayof() is None, focus_set() does not change that and
+    the generated key is silently dropped; focus_force() does, and the key
+    arrives. So ready() asks, waits, and forces - and a key that still goes
+    nowhere says exactly that instead of leaving a check to fail with an
+    empty keysym and no cause.
+  * A layout does not become active the instant it is asked for. Retried,
+    with a bound, and the failure names the layout that IS active.
 """
 from __future__ import annotations
 
 import multiprocessing as mp
 import sys
+import time
+from pathlib import Path
 
 import tkinter as tk
 from tkinter import ttk
 
-from harness import check, run
+from harness import ROOT, check, run, scratch
 from step2html.gui import app as gui
 from step2html.gui import editing
 from step2html.gui.editing import layout_blind_shortcut
@@ -32,6 +53,9 @@ from step2html.gui.geometry import virtual_screen
 RUSSIAN, ENGLISH = "00000419", "00000409"      # keyboard layout identifiers
 CTRL = 4                                       # the Control modifier, in an event's state
 V, C, X, A = 86, 67, 88, 65                    # virtual-key codes: the PHYSICAL keys
+
+WATCH = "Step2htmlKeyWatch"                    # a bindtag of this suite's own
+DELIVERED: list[str] = []                      # the keysyms that really arrived
 
 
 class _Key:
@@ -72,6 +96,69 @@ def check_decisions():
           "AltGr typing a character is not a shortcut")
 
 
+class OneAtATime:
+    """A turn at the session, taken from every other copy on the machine.
+
+    A Windows session has one clipboard and one foreground window, and this
+    suite needs both. Eight copies at once (work/parallel_editing.py,
+    2026-09-21) failed five times, every failure another copy's text arriving
+    where this one's was put - and once an empty clipboard, which pastes
+    nothing and reads exactly like a shortcut that did not fire. Serialising
+    only the clipboard was not enough: the copies still queued with their
+    windows open, whichever opened last held the foreground, and the one
+    holding the lock got focus=None on every key. So the turn is taken
+    BEFORE the window is built, and given up after it is destroyed.
+
+    A NAMED MUTEX and not a lock file: the copies live in trees that share
+    nothing, under work/mutants/run-*/w<i>/, so a file inside the tree would
+    lock nothing. A kernel object is the session's, whatever the tree. A copy
+    killed while holding it leaves it ABANDONED, which the next one takes.
+    """
+
+    NAME = "step2html-tests-one-window"
+    OWNED, ABANDONED = 0x0, 0x80           # WAIT_OBJECT_0, and "the holder died"
+
+    def __init__(self, seconds: float = 600.0):
+        self.handle = None
+        self.why = ""
+        self.waited = 0.0
+        if sys.platform != "win32":
+            return
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.CreateMutexW.restype = ctypes.c_void_p
+        k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                     ctypes.c_wchar_p]
+        k32.WaitForSingleObject.restype = ctypes.c_uint
+        k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        k32.ReleaseMutex.argtypes = [ctypes.c_void_p]
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.k32 = k32
+        handle = k32.CreateMutexW(None, 0, self.NAME)
+        if not handle:
+            self.why = f"CreateMutexW failed with error {ctypes.GetLastError()}"
+            return
+        waited = time.time()
+        got = k32.WaitForSingleObject(handle, int(seconds * 1000))
+        if got in (self.OWNED, self.ABANDONED):
+            self.handle = handle
+            self.waited = time.time() - waited
+        else:
+            k32.CloseHandle(handle)
+            self.why = (f"another copy held the clipboard for {seconds:.0f}s "
+                        f"(WaitForSingleObject returned 0x{got:x})")
+
+    @property
+    def held(self) -> bool:
+        return self.handle is not None or sys.platform != "win32"
+
+    def release(self) -> None:
+        if self.handle is not None:
+            self.k32.ReleaseMutex(self.handle)
+            self.k32.CloseHandle(self.handle)
+            self.handle = None
+
+
 class Layouts:
     """The keyboard layout of THIS thread, switched and put back."""
 
@@ -88,16 +175,36 @@ class Layouts:
     def current(self) -> int:
         return self.u32.GetKeyboardLayout(0) & 0xFFFF          # the language part
 
-    def use(self, klid: str) -> bool:
-        self.u32.LoadKeyboardLayoutW(klid, 1)                  # KLF_ACTIVATE
-        return self.current() == int(klid, 16)
+    def use(self, klid: str, tries: int = 40) -> bool:
+        """Make *klid* this thread's layout, and wait until it really is.
+
+        Loading a layout is a request to the window manager, not an
+        assignment: under load GetKeyboardLayout has answered with the old
+        one for a few milliseconds afterwards, and every key generated in
+        that window carried the wrong keysym.
+        """
+        want = int(klid, 16)
+        for _ in range(tries):
+            self.u32.LoadKeyboardLayoutW(klid, 1)              # KLF_ACTIVATE
+            if self.current() == want:
+                return True
+            time.sleep(0.05)
+        return False
 
     def restore(self) -> None:
         self.u32.ActivateKeyboardLayout(self.before, 0)
 
 
 class Clipboard:
-    """The real clipboard, set for the test and put back afterwards."""
+    """The real clipboard, set for the test and put back afterwards.
+
+    Written and then READ BACK. On Windows the clipboard is opened
+    exclusively and Tk's append can simply fail, leaving whatever was there
+    before - which looks exactly like a paste that did not happen. put()
+    says whether the text is really there, and every check that depends on
+    it carries that answer in its detail, so a clipboard failure is never
+    reported as a broken shortcut.
+    """
 
     def __init__(self, root):
         self.root = root
@@ -106,10 +213,23 @@ class Clipboard:
         except tk.TclError:
             self.before = None
 
-    def put(self, text: str) -> None:
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.root.update()
+    def put(self, text: str, tries: int = 20) -> str:
+        """-> "" when the clipboard really holds *text*, else why it does not."""
+        why = "the clipboard was never written"
+        for _ in range(tries):
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(text)
+                self.root.update()
+            except tk.TclError as exc:
+                why = f"the clipboard refused the text: {exc}"
+            else:
+                got = self.get()
+                if got == text:
+                    return ""
+                why = f"the clipboard reads {got!r}, not {text!r}"
+            time.sleep(0.05)
+        return why
 
     def get(self) -> str:
         try:
@@ -118,9 +238,12 @@ class Clipboard:
             return ""
 
     def restore(self) -> None:
-        self.root.clipboard_clear()
-        if self.before:
-            self.root.clipboard_append(self.before)
+        try:
+            self.root.clipboard_clear()
+            if self.before:
+                self.root.clipboard_append(self.before)
+        except tk.TclError:
+            pass
 
 
 def walk(widget):
@@ -129,10 +252,76 @@ def walk(widget):
         yield from walk(child)
 
 
-def press(widget, keycode: int) -> None:
-    """Ctrl + a physical key, the way Tk sees a real one: by keycode only."""
+def watch(widget) -> None:
+    """Record every KeyPress that reaches *widget*, ahead of its own bindings.
+
+    A plain <KeyPress> binding on the widget would never fire: the shortcut
+    is bound to <Control-KeyPress> on the same bindtag, Tk runs the more
+    specific pattern only, and the handler returns "break" besides. A bindtag
+    of this suite's own, first in the list, sees the event before any of that
+    and returns None, so nothing downstream behaves differently.
+    """
+    widget.bind_class(WATCH, "<KeyPress>",
+                      lambda event: DELIVERED.append(event.keysym))
+    tags = tuple(widget.bindtags())
+    if WATCH not in tags:
+        widget.bindtags((WATCH,) + tags)
+
+
+def ready(widget, tries: int = 20) -> str:
+    """"" when a generated key will reach *widget*, else what is in the way.
+
+    Tk hands a generated KeyPress to whatever ITS focus model believes has
+    the focus, and drops the event when that is nobody. Two ways for it to
+    be nobody, both measured rather than guessed:
+
+      * the toplevel is not on screen yet - update() returns before the
+        window is mapped under load, and the key goes nowhere;
+      * another process took the foreground, so Tk saw a FocusOut. Then
+        focus_set() is not enough: it leaves focus_displayof() at None and
+        the key is still dropped (work/probe_focus.py). focus_force() puts
+        it back, which is what the third step below does.
+
+    Forcing is not gratuitous: this window is deliberately off every screen,
+    and the suite already takes the foreground by opening it at all.
+    """
+    top = widget.winfo_toplevel()
+    for attempt in range(tries):
+        top.update()
+        if top.winfo_ismapped() and top.winfo_viewable():
+            widget.focus_set()
+            top.update()
+            if str(top.focus_displayof() or "") == str(widget):
+                return ""
+            if attempt:                    # asking politely did not work
+                widget.focus_force()
+                top.update()
+                if str(top.focus_displayof() or "") == str(widget):
+                    return ""
+        time.sleep(0.05)
+    return (f"the window never became ready for a key: "
+            f"mapped={top.winfo_ismapped()}, viewable={top.winfo_viewable()}, "
+            f"focus={top.focus_displayof()}, wanted {widget}")
+
+
+def press(widget, keycode: int) -> str:
+    """Ctrl + a physical key, the way Tk sees a real one: by keycode only.
+
+    -> "" when the key was delivered, else the reason it was not - which is
+    a different thing from a shortcut that fired and did nothing.
+    """
+    why = ready(widget)
+    if why:
+        return why
+    watch(widget)
+    DELIVERED.clear()
     widget.event_generate("<KeyPress>", keycode=keycode, state=CTRL)
     widget.winfo_toplevel().update()
+    if not DELIVERED:
+        top = widget.winfo_toplevel()
+        return (f"the generated key never reached the widget: "
+                f"mapped={top.winfo_ismapped()}, focus={top.focus_displayof()}")
+    return ""
 
 
 def main():
@@ -140,155 +329,177 @@ def main():
     check_decisions()
 
     print("\n[2] the window's fields carry the menu and the shortcuts")
-    root = tk.Tk()
-    app = gui.App(root)
-    # Beyond the edge of every screen: mapped, so that generated keys are
-    # delivered, and nowhere anyone can see. Placed AFTER App(), which
-    # restores the remembered position first.
-    vx, vy, _w, _h = virtual_screen((0, 0, root.winfo_screenwidth(),
-                                     root.winfo_screenheight()))
-    root.geometry(f"+{vx - 4000}+{vy - 4000}")
-    root.update()
+    # Under work/tmp on D:, and with a settings file of the test's own: the
+    # window reads CONFIG in __init__, and the developer's real one carries a
+    # geometry and a window_state - a remembered "zoomed" would fight the
+    # off-screen placement three lines below.
+    with scratch("editing-") as tmp:
+        here = Path(tmp).resolve()
+        check(here.is_relative_to((ROOT / "work" / "tmp").resolve()),
+              "the suite writes under work/tmp, not the system TEMP on C:",
+              str(here))
+        gui.CONFIG = Path(tmp) / "step2html_config.json"
 
-    # type(), not isinstance: a Spinbox is an Entry too, and the arrows do
-    # not get an edit menu - the same rule Simple 3D's window follows.
-    entries = [w for w in walk(root) if type(w) is ttk.Entry]
-    named = {app.step_entry, app.out_entry, app.title_entry,
-             app.deflection_entry, app.budget_entry}
-    check(set(entries) == named, "every Entry in the window is one of the five named",
-          f"{len(entries)} found")
-    check(all(w.bind("<Button-3>") for w in entries), "every Entry answers a right-click")
-    check(all(w.bind("<Control-KeyPress>") for w in entries),
-          "and carries the layout-blind shortcuts")
-    check(bool(app.log_view.bind("<Control-KeyPress>"))
-          and not app.log_view.bind("<Button-3>"),
-          "the log has the shortcuts and no menu")
+        # Before the window: a copy waiting with its window already open is a
+        # copy holding the foreground away from whoever has the turn.
+        turn = OneAtATime()
+        check(turn.held,
+              "the suite has the machine's clipboard and foreground to itself",
+              turn.why or f"waited {turn.waited:.1f}s for its turn")
 
-    field = app.step_entry
-    menu = editing.edit_menu(field)
-    labels = [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)
-              if menu.type(i) == "command"]
-    check(labels == ["Cut", "Copy", "Paste", "Select all"],
-          "Cut, Copy, Paste, Select all", str(labels))
-
-    clip = Clipboard(root)
-    layouts = Layouts() if sys.platform == "win32" else None
-    try:
-        clip.put("D:/pasted/from menu")
-        field.delete(0, "end")
-        editing.edit_menu(field).invoke(2)               # Paste
+        root = tk.Tk()
+        app = gui.App(root)
+        # Beyond the edge of every screen: mapped, so that generated keys are
+        # delivered, and nowhere anyone can see. Placed AFTER App(), which
+        # restores the remembered position first.
+        vx, vy, _w, _h = virtual_screen((0, 0, root.winfo_screenwidth(),
+                                         root.winfo_screenheight()))
+        root.geometry(f"+{vx - 4000}+{vy - 4000}")
         root.update()
-        check(app.step_path.get() == "D:/pasted/from menu",
-              "Paste from the menu fills the field", app.step_path.get())
-        editing.edit_menu(field).invoke(4)               # Select all
-        root.update()
-        check(field.selection_present() and field.selection_get() == "D:/pasted/from menu",
-              "Select all selects it")
 
-        class _Click:
-            x_root = y_root = 0
+        # type(), not isinstance: a Spinbox is an Entry too, and the arrows do
+        # not get an edit menu - the same rule Simple 3D's window follows.
+        entries = [w for w in walk(root) if type(w) is ttk.Entry]
+        named = {app.step_entry, app.out_entry, app.title_entry,
+                 app.deflection_entry, app.budget_entry}
+        check(set(entries) == named, "every Entry in the window is one of the five named",
+              f"{len(entries)} found")
+        check(all(w.bind("<Button-3>") for w in entries), "every Entry answers a right-click")
+        check(all(w.bind("<Control-KeyPress>") for w in entries),
+              "and carries the layout-blind shortcuts")
+        check(bool(app.log_view.bind("<Control-KeyPress>"))
+              and not app.log_view.bind("<Button-3>"),
+              "the log has the shortcuts and no menu")
 
-        app.job = object()                                # a build in flight, as far as the fields know
-        check(editing.show_edit_menu(_Click(), field, app._frozen) is None,
-              "no menu while a build runs")
-        app.job = None
-        check(not app._frozen(), "and the fields thaw with the job")
+        field = app.step_entry
+        menu = editing.edit_menu(field)
+        labels = [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)
+                  if menu.type(i) == "command"]
+        check(labels == ["Cut", "Copy", "Paste", "Select all"],
+              "Cut, Copy, Paste, Select all", str(labels))
 
-        # That was the function. This is the FIELD: attach() is handed the
-        # window's own _frozen, and a field wired without it would show the
-        # menu mid-build while the check above went on passing. The pop-up
-        # itself is replaced, so nothing appears and nothing grabs.
-        asked = []
-        real_show, editing.show_edit_menu = editing.show_edit_menu, (
-            lambda event, w, frozen: asked.append((w is field, frozen())))
+        clip = Clipboard(root)
+        layouts = Layouts() if sys.platform == "win32" else None
         try:
-            app.job = object()
-            field.event_generate("<Button-3>", x=5, y=5)
+            put = clip.put("D:/pasted/from menu")
+            field.delete(0, "end")
+            editing.edit_menu(field).invoke(2)               # Paste
             root.update()
+            check(app.step_path.get() == "D:/pasted/from menu",
+                  "Paste from the menu fills the field",
+                  put or app.step_path.get())
+            editing.edit_menu(field).invoke(4)               # Select all
+            root.update()
+            check(field.selection_present() and field.selection_get() == "D:/pasted/from menu",
+                  "Select all selects it")
+
+            class _Click:
+                x_root = y_root = 0
+
+            app.job = object()                                # a build in flight, as far as the fields know
+            check(editing.show_edit_menu(_Click(), field, app._frozen) is None,
+                  "no menu while a build runs")
             app.job = None
-            field.event_generate("<Button-3>", x=5, y=5)
-            root.update()
+            check(not app._frozen(), "and the fields thaw with the job")
+
+            # That was the function. This is the FIELD: attach() is handed the
+            # window's own _frozen, and a field wired without it would show the
+            # menu mid-build while the check above went on passing. The pop-up
+            # itself is replaced, so nothing appears and nothing grabs.
+            asked = []
+            real_show, editing.show_edit_menu = editing.show_edit_menu, (
+                lambda event, w, frozen: asked.append((w is field, frozen())))
+            try:
+                app.job = object()
+                field.event_generate("<Button-3>", x=5, y=5)
+                root.update()
+                app.job = None
+                field.event_generate("<Button-3>", x=5, y=5)
+                root.update()
+            finally:
+                editing.show_edit_menu = real_show
+            check(asked == [(True, True), (True, False)],
+                  "the field's own right-click carries the window's frozen flag",
+                  str(asked))
+
+            print("\n[3] the keys themselves, with the layout really switched")
+            if layouts is None:
+                print("  skip  not Windows: the layout cannot be switched here")
+            elif not turn.held:
+                print("  skip  no turn at the clipboard:", turn.why)
+            else:
+                check(layouts.use(RUSSIAN), "the Russian layout is active for this thread",
+                      f"0x{layouts.current():04x}")
+
+                # First the bug, on a field WITHOUT the fix: what Tk does on its own.
+                bare = ttk.Entry(root)
+                bare.place(x=0, y=0)
+                root.update()
+                put = clip.put("nothing should arrive")
+                missed = press(bare, V)
+                keysym = DELIVERED[0] if DELIVERED else None
+                check(not missed and not put and keysym not in (None, "v", "V")
+                      and bare.get() == "",
+                      "Tk's own Ctrl+V does nothing under the Russian layout",
+                      missed or put or f"keysym {keysym!r}, field {bare.get()!r}")
+                bare.destroy()
+
+                # Then the window's field, with the fix.
+                field.delete(0, "end")
+                put = clip.put("D:/layout/blind")
+                missed = press(field, V)
+                check(app.step_path.get() == "D:/layout/blind",
+                      "Ctrl+V pastes into the STEP field",
+                      missed or put or app.step_path.get() or "the field stayed empty")
+                missed = press(field, A)
+                selected = (field.selection_get()
+                            if field.selection_present() else None)
+                check(selected == "D:/layout/blind", "Ctrl+A selects it all",
+                      missed or (selected if selected is not None
+                                 else "nothing is selected"))
+                put = clip.put("")
+                missed = press(field, C)
+                check(clip.get() == "D:/layout/blind", "Ctrl+C copies the selection",
+                      missed or put or clip.get() or "the clipboard stayed empty")
+                missed = press(field, X)
+                check(app.step_path.get() == "" and clip.get() == "D:/layout/blind",
+                      "Ctrl+X cuts it",
+                      missed or f"field {app.step_path.get()!r}, "
+                                f"clipboard {clip.get()!r}")
+
+                # The log: Copy and Select all work, Paste stays a no-op.
+                app.clear_log()
+                app.log("hello from the log")
+                missed = press(app.log_view, A) or press(app.log_view, C)
+                check("hello from the log" in clip.get(),
+                      "the log copies under the Russian layout",
+                      missed or clip.get().strip()[:40] or "the clipboard is empty")
+                # Something the log does NOT already say: pasting what was just
+                # copied over the selection that was just made leaves the same
+                # text behind, so it cannot tell a refused paste from a real one.
+                put = clip.put("pasted over the record of the build")
+                missed = press(app.log_view, V)
+                check(app.log_view.get("1.0", "end").strip() == "hello from the log",
+                      "and Ctrl+V leaves the read-only log alone",
+                      missed or put or app.log_view.get("1.0", "end").strip()[:45])
+
+                # And the Latin layout: once, not twice.
+                check(layouts.use(ENGLISH), "the English layout is active",
+                      f"0x{layouts.current():04x}")
+                field.delete(0, "end")
+                put = clip.put("once")
+                missed = press(field, V)
+                check(app.step_path.get() == "once",
+                      "under a Latin layout Ctrl+V pastes exactly once",
+                      missed or put or app.step_path.get() or "the field stayed empty")
         finally:
-            editing.show_edit_menu = real_show
-        check(asked == [(True, True), (True, False)],
-              "the field's own right-click carries the window's frozen flag",
-              str(asked))
-
-        print("\n[3] the keys themselves, with the layout really switched")
-        if layouts is None:
-            print("  skip  not Windows: the layout cannot be switched here")
-        else:
-            check(layouts.use(RUSSIAN), "the Russian layout is active for this thread",
-                  f"0x{layouts.current():04x}")
-
-            # First the bug, on a field WITHOUT the fix: what Tk does on its own.
-            bare = ttk.Entry(root)
-            bare.place(x=0, y=0)
-            seen = []
-            bare.bind("<KeyPress>", lambda e: seen.append(e.keysym))
-            root.update()
-            bare.focus_set()
-            root.update()
-            clip.put("nothing should arrive")
-            press(bare, V)
-            check(seen and seen[0] != "v" and bare.get() == "",
-                  "Tk's own Ctrl+V does nothing under the Russian layout",
-                  f"keysym {seen[0] if seen else None!r}, field {bare.get()!r}")
-            bare.destroy()
-
-            # Then the window's field, with the fix.
-            field.focus_set()
-            root.update()
-            field.delete(0, "end")
-            clip.put("D:/layout/blind")
-            press(field, V)
-            check(app.step_path.get() == "D:/layout/blind",
-                  "Ctrl+V pastes into the STEP field", app.step_path.get())
-            press(field, A)
-            check(field.selection_present() and field.selection_get() == "D:/layout/blind",
-                  "Ctrl+A selects it all")
-            clip.put("")
-            press(field, C)
-            check(clip.get() == "D:/layout/blind", "Ctrl+C copies the selection", clip.get())
-            press(field, X)
-            check(app.step_path.get() == "" and clip.get() == "D:/layout/blind",
-                  "Ctrl+X cuts it", app.step_path.get())
-
-            # The log: Copy and Select all work, Paste stays a no-op.
-            app.clear_log()
-            app.log("hello from the log")
-            app.log_view.focus_set()
-            root.update()
-            press(app.log_view, A)
-            press(app.log_view, C)
-            check("hello from the log" in clip.get(), "the log copies under the Russian layout",
-                  clip.get().strip()[:40])
-            # Something the log does NOT already say: pasting what was just
-            # copied over the selection that was just made leaves the same
-            # text behind, so it cannot tell a refused paste from a real one.
-            clip.put("pasted over the record of the build")
-            press(app.log_view, V)
-            check(app.log_view.get("1.0", "end").strip() == "hello from the log",
-                  "and Ctrl+V leaves the read-only log alone",
-                  app.log_view.get("1.0", "end").strip()[:45])
-
-            # And the Latin layout: once, not twice.
-            check(layouts.use(ENGLISH), "the English layout is active",
-                  f"0x{layouts.current():04x}")
-            field.focus_set()
-            root.update()
-            field.delete(0, "end")
-            clip.put("once")
-            press(field, V)
-            check(app.step_path.get() == "once",
-                  "under a Latin layout Ctrl+V pastes exactly once", app.step_path.get())
-    finally:
-        if layouts is not None:
-            layouts.restore()
-            check(layouts.u32.GetKeyboardLayout(0) == layouts.before,
-                  "the layout is back to what it was")
-        clip.restore()
-        root.destroy()
+            if layouts is not None:
+                layouts.restore()
+                check(layouts.u32.GetKeyboardLayout(0) == layouts.before,
+                      "the layout is back to what it was")
+            clip.restore()
+            turn.release()
+            root.destroy()
 
 
 if __name__ == "__main__":

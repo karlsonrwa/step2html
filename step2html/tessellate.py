@@ -20,10 +20,10 @@ import numpy as np
 
 from ._occt import (BRep_Tool, BRepAdaptor_Curve, GCPnts_TangentialDeflection,
                     GeomAbs_CurveType, TopAbs_EDGE, TopAbs_Orientation,
-                    TopAbs_SOLID, TopExp_Explorer, TopLoc_Location, TopoDS,
+                    TopExp_Explorer, TopLoc_Location, TopoDS,
                     TopTools_IndexedMapOfShape)
 from .gltf import export_mesh
-from .meshing import faces
+from .meshing import faces, solid_colours
 
 
 def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None,
@@ -90,23 +90,10 @@ def tessellate(parts, colour_of, linear=0.04, angular=0.35, tick=None,
         place12 = _twelve(place)
         # A mirrored placement reverses the winding of every triangle in it.
         mirrored = place.IsNegative()
-        # The colour of the SOLID each face belongs to, which is a level of
-        # the lookup that was missing. XCAF hangs one colour on the solid and
-        # lets its faces inherit it, overriding only the ones that differ - a
-        # real board arrived with its body colour on the solid and 11 of its
-        # 63 faces carrying nothing of their own, so those 11 fell straight
-        # past to the default grey. On that board it was 44% of the surface.
-        by_solid = TopTools_IndexedMapOfShape()
-        solid_rgb = {}
-        exp = TopExp_Explorer(shape, TopAbs_SOLID)
-        while exp.More():
-            solid = exp.Current()
-            exp.Next()
-            rgb = colour_of(solid)
-            if rgb is None:
-                continue
-            for f in faces(solid):
-                solid_rgb[by_solid.Add(f)] = rgb
+        # The colour of the SOLID each face belongs to - the level of the
+        # lookup between the face and the part, which was missing once and
+        # is now one helper shared with the repair (meshing.solid_colours).
+        by_solid, solid_rgb = solid_colours(shape, colour_of)
 
         # This part's primitives from the export, consumed in face order.
         # The patches are copies the document has never seen, so they are

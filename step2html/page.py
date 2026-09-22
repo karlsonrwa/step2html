@@ -25,6 +25,16 @@ TEXT = {
     "crc_failed": "Damaged file: the model checksum does not match. Nothing is "
                   "drawn, rather than drawing something untrue. Get an "
                   "undamaged copy.",
+    # What the payload's own header can say. These name the CAUSE - bytes
+    # that are not a model of this tool's, or a model in a format this
+    # page was not written to read - and say it differently from the two
+    # above, because such a file is not damaged at all. The braces are
+    # filled by the page, which knows the version it found.
+    "not_a_model": "This file does not carry a step2html model: the payload "
+                   "has no S3DH header. Nothing is drawn.",
+    "wrong_format": "This page cannot read this model: the payload is format "
+                    "version {got}, and this page reads version {reads}. Get "
+                    "a page made by the tool that wrote it.",
     "projection": "Projection",
     "perspective": "Perspective",
     "orthographic": "Orthographic",
@@ -111,6 +121,8 @@ def build_page(title: str, stats: dict, data: str, crc: int, raw: int,
         "__NO_WEBGL__": js_escape(TEXT["no_webgl"]),
         "__UNPACK_FAILED__": js_escape(TEXT["unpack_failed"]),
         "__CRC_FAILED__": js_escape(TEXT["crc_failed"]),
+        "__NOT_A_MODEL__": js_escape(TEXT["not_a_model"]),
+        "__WRONG_FORMAT__": js_escape(TEXT["wrong_format"]),
         "__CRC__": str(crc),
         "__RAW__": str(raw),
         "__EDGE_BIAS__": repr(round(edge_bias, 8)),

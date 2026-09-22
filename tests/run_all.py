@@ -19,7 +19,10 @@ JOBS = [
     # matches its file, so the expensive job can still ask its questions.
     ("the mutation table",       TESTS / "test_mutations.py"),
     ("window geometry",          TESTS / "test_geometry.py"),
+    ("the command line",         TESTS / "test_cli.py"),
     ("the viewer, in node",      TESTS / "test_viewer.py"),
+    # The real page in a headless browser: the DOM half of the viewer.
+    ("the viewer, in a browser", TESTS / "test_browser.py"),
     ("colours and geometry",     TESTS / "test_model.py"),
     ("the generated page",       TESTS / "test_page.py"),
     ("repairing a refused face", TESTS / "test_repair.py"),

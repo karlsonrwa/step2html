@@ -7,13 +7,12 @@ opinion from OCCT rather than against itself.
 from __future__ import annotations
 
 import sys
-import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 
-from harness import ANGULAR, check, run
+from harness import ANGULAR, check, run, scratch
 from fixtures import (BODY, PIN, PIN_AT, PLATE_A, PLATE_AT, PLATE_B, RIM,
                       coloured_assembly)
 from step2html.meshing import auto_deflection, mesh_parts, repair_parts
@@ -33,7 +32,7 @@ from OCP.TopoDS import TopoDS_Compound
 
 
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
+    with scratch() as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
         doc = read_step(step)
         parts, color_tool = collect_parts(doc)

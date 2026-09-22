@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 import tkinter as tk
 
-from harness import check, run
+from harness import ROOT, check, run, scratch
 from fixtures import coloured_assembly
 from step2html import convert as core
 from step2html.gui import app as gui
@@ -97,24 +96,45 @@ def check_startup_failure():
 
 
 def main():
-    root = tk.Tk()
-    root.withdraw()
-    app = gui.App(root)
+    # Everything this suite writes goes under work/tmp on D:, never the system
+    # TEMP: tempfile's default is on C:, whose write endurance the user
+    # conserves on purpose, and one run of this suite writes a few megabytes.
+    with scratch("gui-") as tmp:
+        here = Path(tmp).resolve()
+        check(here.is_relative_to((ROOT / "work" / "tmp").resolve()),
+              "the suite writes under work/tmp, not the system TEMP on C:",
+              str(here))
 
-    check_startup_failure()
-    check_severity()
+        # The window reads CONFIG in __init__, and until this line that was
+        # the developer's own settings file: an angle of 3, a fixed budget of
+        # 1 MB and a remembered geometry were the input to everything below,
+        # on this machine and on no other. A file of the test's own, which
+        # does not exist yet, so the window comes up on its documented
+        # defaults. (The one written later, by save_config, is this one too.)
+        gui.CONFIG = Path(tmp) / "step2html_config.json"
 
-    # ---- every flag has a control ------------------------------------- #
-    flags = {f.name for f in core.Options.__dataclass_fields__.values()}
-    controls = {"step": app.step_path, "out": app.out_path,
-                "title": app.title_text, "deflection": app.deflection,
-                "angle": app.angle, "max_bytes": app.budget_mode,
-                "repair": app.repair, "read_only": app.read_only}
-    check(flags == set(controls), "every Options field has a control",
-          f"missing {sorted(flags - set(controls))}" if flags - set(controls) else "")
+        root = tk.Tk()
+        root.withdraw()
+        app = gui.App(root)
 
-    # ---- the budget radio really maps onto the flag -------------------- #
-    with tempfile.TemporaryDirectory() as tmp:
+        check_startup_failure()
+        check_severity()
+
+        # ---- every flag has a control --------------------------------- #
+        flags = {f.name for f in core.Options.__dataclass_fields__.values()}
+        controls = {"step": app.step_path, "out": app.out_path,
+                    "title": app.title_text, "deflection": app.deflection,
+                    "angle": app.angle, "max_bytes": app.budget_mode,
+                    "repair": app.repair, "read_only": app.read_only}
+        check(flags == set(controls), "every Options field has a control",
+              f"missing {sorted(flags - set(controls))}"
+              if flags - set(controls) else "")
+        check(app.angle.get() == "15" and app.budget_mode.get() == "auto"
+              and app.repair.get() is True,
+              "and a window with no settings file comes up on the defaults",
+              f"angle={app.angle.get()!r} budget={app.budget_mode.get()!r}")
+
+        # ---- the budget radio really maps onto the flag ---------------- #
         # ---- what the window remembers, on its own ---------------------- #
         # With a file of its own, not the one this machine happens to have:
         # a settings test that reads the developer's own config proves
@@ -374,7 +394,9 @@ def main():
 
         # ---- settings survive a restart ------------------------------- #
         app.angle.set("7.5"); app.budget_mode.set("fixed"); app.budget_mb.set("3")
-        gui.CONFIG = Path(tmp) / "step2html_config.json"
+        # gui.CONFIG has pointed into this folder since the window was built,
+        # so nothing here has ever read or written the file the user has.
+        check(not gui.CONFIG.exists(), "no settings file has been written yet")
         app.save_config()
         check(gui.CONFIG.is_file(), "the settings file was written")
         second = gui.App(tk.Toplevel(root))

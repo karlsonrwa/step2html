@@ -4,6 +4,16 @@ meant to be substituted may reach the browser unsubstituted.
 The damage checks matter because the page PROMISES to report damage rather
 than draw something untrue. If the checksum is not actually wired up, that
 promise is a lie and nobody would notice.
+
+What this suite is NOT for: behaviour. A word found anywhere in a 1300-line
+script says nothing about what the script does with it - "snapAt" in the
+page passes just as well when the measurement never snaps. Those claims
+belong in tests/test_browser.py, which opens the page in a browser and
+watches it, and the checks here that used to stand in for them either point
+at it now or are scoped with body_of() to the function whose job the word
+belongs to. What stays whole here is what this suite can really see: the
+template, the ids, the substitutions, the order of the files, and the bytes
+of the payload.
 """
 from __future__ import annotations
 
@@ -15,11 +25,10 @@ import shutil
 import struct
 import subprocess
 import sys
-import tempfile
 import zlib
 from pathlib import Path
 
-from harness import check, run
+from harness import check, run, scratch
 from fixtures import coloured_assembly
 from step2html import __version__, cli, payload
 from step2html import meta as meta_module   # "meta" is a keyword argument here
@@ -31,8 +40,41 @@ from step2html.page import JS_ORDER, TEXT, build_page
 from OCP import __version__ as OCCT
 
 
+def body_of(page: str, name: str) -> str:
+    """The CODE of `function name(...){...}` in the page: braces matched,
+    line comments thrown away.
+
+    So that a check can say "in the code that does the job" instead of
+    "somewhere in the page". The comments go because they are where the
+    words are: pick() explains its ray in a comment that names span*4, so a
+    check for span*4 anywhere in that function passes with the number
+    changed in the line below it. The matching counts braces and knows
+    nothing of strings - which is enough here, because every brace inside a
+    string or a template in this script is balanced too (`void main(){...}`
+    in the shaders, `${...}` in the labels), and nothing in it carries a //
+    inside a string. A name that is not found comes back empty, and every
+    caller reads a word out of it, so a rename fails the check rather than
+    passing it quietly.
+    """
+    m = re.search(r"function\s+" + re.escape(name) + r"\s*\([^)]*\)\s*\{", page)
+    if not m:
+        return ""
+    depth, i = 0, m.end() - 1
+    while i < len(page):
+        if page[i] == "{":
+            depth += 1
+        elif page[i] == "}":
+            depth -= 1
+            if depth == 0:
+                body = page[m.start():i + 1]
+                return "\n".join(line.split("//")[0]
+                                 for line in body.splitlines())
+        i += 1
+    return ""
+
+
 def main():
-    with tempfile.TemporaryDirectory() as tmp:
+    with scratch("page-") as tmp:
         step = coloured_assembly(Path(tmp) / "fixture.step")
         out = Path(tmp) / "fixture.html"
         # At a FIXED deflection, so the payload below can be compared with the
@@ -73,18 +115,24 @@ def main():
         check('value="ortho" checked' in page, "orthographic is the default")
         check('value="on" checked' in page, "edges are on by default")
         check('value="system" checked' in page, "the theme follows the system")
-        check("chooseLayout" in page and "body.side" in page,
-              "the bar can stand on its end, and something chooses which")
+        check("body.side" in page and "chooseLayout(" in body_of(page, "boot"),
+              "the bar can stand on its end, and the page chooses which at "
+              "boot")
         # The button is fixed to the screen corner, so in the side layout it
         # reaches across the canvas - and the canvas paints over it without
         # this, because #bar comes first in the markup and neither carries a
         # stacking order of its own.
         check("z-index:5" in page, "the help button is lifted above the canvas")
-        check("cam.pivot" in page and "setPivot" in page,
+        # That a click really moves the centre of rotation, and that the
+        # marker really lands on it, are checked in tests/test_browser.py
+        # ("a click of three pixels is a click", "the marker sits exactly
+        # where toScreen puts the pivot"). What is left here is the markup
+        # those two need, and that the call is in the pointer code at all.
+        check("setPivot(" in body_of(page, "boot"),
               "a click can move the centre of rotation")
-        check('id="pivot"' in page and "showMarker" in page,
+        check('id="pivot"' in page and "showMarker(" in body_of(page, "boot"),
               "and the centre of rotation is shown where it landed")
-        check("cam.rot" in page and "cam.pitch" not in page,
+        check("cam.rot" in body_of(page, "boot") and "cam.pitch" not in page,
               "orientation is a matrix, so rotation has no stop in it")
         check(page.count('data-view=') == 8 and 'id="cube"' in page,
               "the view cube offers eight standard views")
@@ -101,11 +149,15 @@ def main():
         # The scrim is the whole of "a click outside closes the menu and the
         # view does not change": without it the click reaches the canvas and
         # turns the model or moves the centre of rotation.
-        check('id="scrim"' in page and "closeMenu" in page,
+        check('id="scrim"' in page and "closeMenu(" in body_of(page, "boot"),
               "and a click outside is swallowed rather than passed through")
-        check('id="axes"' in page and "paintAxes" in page,
+        # The triad's arithmetic - where each arm points, and which is drawn
+        # over which - is measured in test_browser ("each axis arm is drawn
+        # from (44,44)"); the id and the three lines are the template's half.
+        check('id="axes"' in page and "paintAxes(" in body_of(page, "boot"),
               "an axis triad is drawn in the corner")
-        check(page.count("line.ax") >= 1 and "corners" in page,
+        check(body_of(page, "paintMeasure").count("line.ax") >= 1
+              and "corners" in body_of(page, "paintMeasure"),
               "and a measurement steps along the axes")
         # A stray newline inside a JS string breaks the WHOLE script, so the
         # page draws nothing at all - and Python happily writes it, because
@@ -162,28 +214,43 @@ def main():
         check(not (wanted - ids), "every element the script asks for exists",
               ", ".join(sorted(wanted - ids)))
 
+        # What the saved picture actually is - a PNG blob the size of the
+        # canvas, named after the title, with the overlays on it - is
+        # measured in test_browser ("Save PNG hands over a PNG blob", "with
+        # the centre of rotation drawn over it"). Here: that the three calls
+        # are in savePng and not merely somewhere in the script.
         for want, what in (("toBlob", "the picture goes out through a blob"),
                            ("createObjectURL", "and a blob URL, not a data one"),
                            ("paintSvgOnto", "overlays are drawn into it")):
-            check(want in page, what)
+            check(want in body_of(page, "savePng"), what)
 
-        check("span*4" in page,
+        # And the ray's origin, which test_viewer measures with numbers
+        # ("an orthographic ray takes the NEAREST triangle"): here only that
+        # the offset is in pick() rather than anywhere in the page.
+        check("span*4" in body_of(page, "pick"),
               "the pick ray starts in front of the model, not on the "
               "camera plane")
         # An old browser is told so whichever way it is old: no API at all, or
         # an API from before deflate-raw - Chrome 80 to 102 - whose
         # constructor throws. Caught inside the unpacking's own try, that
         # throw read as "damaged file" about a file that was whole.
-        check(page.count("{kind:'old'}") == 2 and "MSG.old" in page
-              and "103+" in page,
+        check(body_of(page, "inflate").count("{kind:'old'}") == 2
+              and "MSG.old" in body_of(page, "boot") and "103+" in page,
               "an old browser is named as old, not as a damaged file")
 
         # ---- the measurement snaps, and says so ----------------------- #
-        check("snapAt" in page and "rimPath" in page,
+        # The snap itself is measured in test_viewer (snapAt, with numbers)
+        # and on the page in test_browser ("the rim under the cursor is
+        # drawn as 48 samples", "the ring that says what a click would take
+        # is on the circle's centre"). These say the calls are where the
+        # work is done, and that the template carries the elements they fill.
+        check("snapAt(" in body_of(page, "boot")
+              and "rimPath(" in body_of(page, "paintMeasure"),
               "a measurement can snap to the centre of a circle")
         check("polyline" in page and 'class="rim"' in page,
               "and the rim it caught is shown before the click")
-        check("labelAt" in page and "line.lead" in page,
+        check("labelAt" in body_of(page, "boot")
+              and "line.lead" in body_of(page, "paintMeasure"),
               "the reading parks out of the way, on a lead")
 
         # The number the pages carry, asked of the tool itself.
@@ -233,11 +300,17 @@ def main():
               "and how big it is, in mm")
 
         # ---- the tools ------------------------------------------------ #
+        # The last two are behaviour, and test_browser measures them: the
+        # address is read at boot and written 400 ms after a move, and the
+        # keys 1-8, E, P, M and Escape each do their one thing. Here: the
+        # elements exist, and the two calls are inside boot rather than
+        # anywhere in the script.
         for want, what in (('id="measure"', "a measure mode"),
-                           ('id="png"', "a way to save the view as a picture"),
-                           ("location.hash", "the view in the address"),
-                           ("keydown", "keyboard shortcuts")):
+                           ('id="png"', "a way to save the view as a picture")):
             check(want in page, f"the page carries {what}")
+        for want, what in (("location.hash", "the view in the address"),
+                           ("keydown", "keyboard shortcuts")):
+            check(want in body_of(page, "boot"), f"the page carries {what}")
 
         # ---- the payload round-trips -------------------------------------- #
         b64 = re.search(r'id="geo">([^<]+)<', page).group(1).strip()

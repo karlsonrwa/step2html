@@ -34,7 +34,7 @@ import mutate                                          # noqa: E402
 TABLE = ROOT / "tests" / "mutations.json"
 # Just under the table's size when this was last raised: half the rows could
 # not vanish and still pass. The number only ever grows.
-MIN_ROWS = 150
+MIN_ROWS = 230
 FIELDS = ("id", "file", "old", "new", "suites", "why")
 
 

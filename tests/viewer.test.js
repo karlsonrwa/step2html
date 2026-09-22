@@ -23,14 +23,22 @@ const dir = path.join(__dirname, '..', 'step2html', 'viewer');
 // window and measures elements, but oblong is arithmetic over two numbers
 // and comes out by name like the rest. Nothing in the file touches the
 // document until it is called.
-const src = ['payload.js', 'mat.js', 'camera.js', 'pick.js', 'hash.js', 'layout.js']
+//
+// overlays.js and measure.js are here for placeMarker and rimPath, which
+// take what they work on by argument and are arithmetic: placeMarker writes
+// two strings into whatever object it is handed, and rimPath walks a circle
+// through a project() given to it. What is left in those two files - the
+// element walks of paintAxes and paintMeasure - needs a document and is
+// checked in tests/test_browser.py, on the real page.
+const src = ['payload.js', 'mat.js', 'camera.js', 'pick.js', 'overlays.js',
+             'measure.js', 'hash.js', 'layout.js']
   .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
 // globalThis stands in for window: node has DecompressionStream, atob, Blob
 // and MessageChannel of its own since 18, which is what inflate needs.
 const V = new Function('window', src + '\nreturn {crc32, crcRun, inflate, parsePayload, mul, rotX, rotY, '
   + 'orthonormalise, basis, FOV, fitDist, VIEWS, homeCam, projection, modelView, '
   + 'setDist, setPivot, toModel, toScreen, pxSize, pick, faceOfTriangle, snapAt, '
-  + 'SNAP_PX, encodeView, decodeView, oblong};')(globalThis);
+  + 'SNAP_PX, encodeView, decodeView, oblong, placeMarker, rimPath};')(globalThis);
 
 let failures = 0;
 function check(ok, what, detail) {
@@ -92,6 +100,35 @@ check(V.crc32(new TextEncoder().encode('123456789')) === 0xCBF43926,
         'and so are the triangles, the edges, the face starts and the circles',
         JSON.stringify([[...mesh.idx], [...mesh.epos], [...mesh.eidx],
                         [...mesh.faceAt], [...mesh.cir]]));
+  // The first eight bytes, which nothing used to look at: every count is
+  // read from a fixed offset, so another file's bytes came out as enormous
+  // array lengths and the page called a whole file damaged - or drew
+  // nothing at all and said nothing.
+  const bytes = new Uint8Array(body);
+  const refuse = edit => {
+    const copy = bytes.slice();
+    if (edit) edit(new DataView(copy.buffer));
+    try { V.parsePayload(copy); return 'parsed'; }
+    catch (e) { return e && e.kind ? e.kind + ':' + e.got : String(e); }
+  };
+  check(refuse(dv => dv.setUint8(1, 0x34)) === 'magic:S4DH',
+        'a payload that is not S3DH is refused by its magic, and says what it found',
+        refuse(dv => dv.setUint8(1, 0x34)));
+  check(refuse(dv => dv.setUint32(4, 5, true)) === 'version:5',
+        'and one written in a format this page does not read, by its version',
+        refuse(dv => dv.setUint32(4, 5, true)));
+  let short = 'parsed';
+  try { V.parsePayload(bytes.slice(0, 20)); }
+  catch (e) { short = e && e.kind ? e.kind + ':' + e.got : String(e); }
+  check(short === 'magic:too short',
+        'and bytes too few to hold a header are refused before they are read',
+        short);
+  // And the payload it WAS written for still goes through, which is the
+  // half of this that a check written only for the refusals would lose.
+  const again = V.parsePayload(bytes);
+  check(again.nv === 3 && again.ncr === 1 && near(again.span, 7.5),
+        'while the payload of this page\'s own version parses as it did',
+        JSON.stringify([again.nv, again.ncr, again.span]));
 }
 
 // ---- mat ---------------------------------------------------------------- #
@@ -358,6 +395,76 @@ check(V.VIEWS.length === 8, 'there are eight named views');
   check(near(V.pxSize(cam, MV, true, 200, [0,0,0]), 2 * cam.oh / 200), 'pxSize in ortho is oh per half height');
 }
 
+// ---- overlays ------------------------------------------------------------ #
+{
+  // The marker over the canvas is placed by the SAME mapping the rest of
+  // the page projects with. It used to carry its own copy of it - the
+  // perspective divide and the pixel mapping written out again from MVP -
+  // and two copies of one rule drift the day a projection changes.
+  // Measured off centre and off axis on purpose: at the middle of the
+  // canvas, and with a pivot at the origin, every wrong mapping agrees with
+  // the right one.
+  const cam = {pivot: [7, -3, 2], rot: V.rotY(0.6), dist: 50,
+               oh: 50 * Math.tan(V.FOV / 2), px: 4, py: -6};
+  const MV = V.modelView(cam), P = V.projection(cam, false, 1.7, 10);
+  const p = [9, -1, 3];
+  const want = V.toScreen(MV, P, 800, 600, p);
+  const marker = {style: {left: 'x', top: 'y'}};
+  V.placeMarker(marker, MV, P, p, 800, 600);
+  check(want && marker.style.left === want[0] + 'px'
+        && marker.style.top === want[1] + 'px'
+        && Math.abs(want[0] - 400) > 20 && Math.abs(want[1] - 300) > 20,
+        'placeMarker puts the marker exactly where toScreen puts the point',
+        `${marker.style.left},${marker.style.top} for ${want && want.map(v => +v.toFixed(2))}`);
+  // Behind the camera there is no pixel to put it on, and the last one it
+  // had is better than one mirrored in front of the model.
+  const held = {style: {left: '12px', top: '34px'}};
+  V.placeMarker(held, MV, P, [7, -3, 400], 800, 600);
+  check(held.style.left === '12px' && held.style.top === '34px',
+        'and leaves it where it was for a point behind the camera',
+        `${held.style.left},${held.style.top}`);
+}
+
+// ---- measure: the caught rim as a screen path ---------------------------- #
+{
+  const cam = {pivot: [0, 0, 0], rot: new Float32Array(I), dist: 50,
+               oh: 50 * Math.tan(V.FOV / 2), px: 0, py: 0};
+  const MV = V.modelView(cam), P = V.projection(cam, false, 1, 10);
+  const project = q => V.toScreen(MV, P, 400, 400, q);
+  const circle = {p: [0, 0, 0], n: [0, 0, 1], r: 5};
+  const path = V.rimPath(circle, project);
+  const pts = path.split(' ');
+  // Forty-eight steps round the circle, so the first and the last point are
+  // the same place and the ring closes.
+  check(pts.length === 49 && pts[0] === pts[48],
+        'a rim comes back as 48 samples round the circle, closed',
+        `${pts.length} points, first ${pts[0]}, last ${pts[48]}`);
+  const r0 = pts[0].split(',').map(Number);
+  const mid = pts[24].split(',').map(Number);
+  // Seen face on, so it projects to a circle about the projection of its
+  // own centre: opposite samples straddle that centre, and every sample is
+  // the same distance from it.
+  const rad = pts.slice(0, 48).map(s => {
+    const [x, y] = s.split(',').map(Number);
+    return Math.hypot(x - 200, y - 200);
+  });
+  const spread = Math.max(...rad) - Math.min(...rad);
+  check(Math.abs((r0[0] + mid[0]) / 2 - 200) < .01
+        && Math.abs((r0[1] + mid[1]) / 2 - 200) < .01
+        && spread < .12 && rad[0] > 50,     // written to a tenth of a pixel
+        'and it is the circle itself, about the centre it was taken from',
+        `${rad[0].toFixed(1)} px out, spread ${spread.toFixed(3)} px`);
+  // A rim that runs past the lens. One sample behind the camera and the
+  // path is not a ring any more but a line across the view, so there is
+  // nothing honest to draw - hence '' rather than half a circle.
+  const near_ = {pivot: [0, 0, 0], rot: new Float32Array(I), dist: 5,
+                 oh: 5 * Math.tan(V.FOV / 2), px: 0, py: 0};
+  const nMV = V.modelView(near_), nP = V.projection(near_, false, 1, 10);
+  const huge = {p: [0, 0, 0], n: [0, 1, 0], r: 40};
+  check(V.rimPath(huge, q => V.toScreen(nMV, nP, 400, 400, q)) === '',
+        'a rim with a point behind the camera is not drawn at all');
+}
+
 // ---- hash --------------------------------------------------------------- #
 {
   // Values that need all six digits, and a rotation that is NOT symmetric.
@@ -385,6 +492,29 @@ check(V.VIEWS.length === 8, 'there are eight named views');
   check(V.decodeView(sixteen) === null,
         'and sixteen fields that are not numbers are ignored too',
         JSON.stringify(V.decodeView(sixteen)));
+}
+{
+  // An address written out BY HAND, and what each of its sixteen fields
+  // must become. Everything above goes through encodeView first, so the two
+  // halves could agree on a wrong order - or on a field read twice - and
+  // the round trip would still close: it was pivot[2] that had no check at
+  // all, because the one above reads back only the first two. Sixteen
+  // values, all different, none of them a round number.
+  const h = '#v=0.11,0.22,0.33,0.44,0.55,0.66,0.77,0.88,0.99,'
+          + '137.25,35.5,-2.5,4.25,10.5,-20.25,30.125';
+  const v = V.decodeView(h);
+  const rot = v && Array.from(v.rot);
+  check(v && v.dist === 137.25 && v.oh === 35.5 && v.px === -2.5
+        && v.py === 4.25 && v.pivot.join() === '10.5,-20.25,30.125',
+        'a hand-written address decodes field by field into the camera it names',
+        v ? JSON.stringify([v.dist, v.oh, v.px, v.py, v.pivot]) : 'null');
+  // The nine of the rotation into the upper-left 3x3 of a 4x4, in reading
+  // order, with the fourth column and row left as they must be.
+  const want = [0.11, 0.22, 0.33, 0, 0.44, 0.55, 0.66, 0, 0.77, 0.88, 0.99, 0,
+                0, 0, 0, 1];
+  check(rot && want.every((w, i) => near(rot[i], w, 1e-6)),
+        'and its nine rotation fields into the matrix, in that order',
+        rot ? rot.map(x => +x.toFixed(3)).join() : 'null');
 }
 
 // ---- layout ------------------------------------------------------------- #

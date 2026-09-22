@@ -20,6 +20,9 @@ import queue
 
 DIED_SILENTLY = ("the build process stopped with exit code {code}, without "
                  "reporting anything. That is usually a crash inside OCCT.")
+# Exit code 0 and not a word: not a crash, and not a result either.
+ENDED_QUIETLY = ("the build process ended with exit code {code} without "
+                 "reporting a result. Nothing was written.")
 
 
 class Job:
@@ -50,8 +53,9 @@ class Job:
         if self.proc is not None:
             self._close("cancelled")
 
-    def pump(self) -> bool:
-        """Drain the channel once. -> True while the child is still running.
+    def _drain(self) -> bool:
+        """Hand every waiting message to its callback. -> True if one of
+        them ended the run (done or error); the channel is closed then.
 
         Taken locally: handling "done" or "error" clears the channel, and
         reading it again on the next turn of this loop would be a crash.
@@ -61,7 +65,7 @@ class Job:
             try:
                 kind, payload = channel.get_nowait()
             except queue.Empty:
-                break
+                return False
             if kind == "log":
                 self.on_log(payload)
             elif kind == "progress":
@@ -69,22 +73,35 @@ class Job:
             elif kind == "error":
                 self._close("error")
                 self.on_error(str(payload))
-                return False
+                return True
             elif kind == "done":
                 summary, output = payload
                 self._close("done")
                 self.on_done(summary, output)
-                return False
+                return True
+        return False
 
+    def pump(self) -> bool:
+        """Drain the channel once. -> True while the child is still running."""
+        if self._drain():
+            return False
         # A child that died without saying anything died hard - an access
         # violation inside OCCT looks exactly like this, and saying so beats
-        # a window that just goes quiet.
+        # a window that just goes quiet. Everything it wrote is in the pipe
+        # by the time it is dead (a child joins its queue's feeder thread on
+        # the way out), so one more drain settles whether it said done or
+        # error as it went. If it did not, it died without a word - and exit
+        # code 0 is no exception: a child that ends quietly is not a
+        # conversion that finished, and taking it for "still running" left
+        # the window waiting for ever (the audit of 21 Sep 2026).
         if self.proc is not None and not self.proc.is_alive():
-            code = self.proc.exitcode
-            if code not in (0, None):
-                self._close("died")
-                self.on_error(DIED_SILENTLY.format(code=code))
+            if self._drain():
                 return False
+            code = self.proc.exitcode
+            self._close("died")
+            self.on_error((DIED_SILENTLY if code else ENDED_QUIETLY)
+                          .format(code=code))
+            return False
         return self.proc is not None
 
     def _close(self, how: str) -> None:

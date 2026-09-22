@@ -2,14 +2,18 @@
 
 // The centre of rotation, projected to a screen position once per frame -
 // a great deal less than a second draw call - and CSS animates it for free.
-function placeMarker(marker,MVP,pv,w,h){
-  const pw=MVP[3]*pv[0]+MVP[7]*pv[1]+MVP[11]*pv[2]+MVP[15];
-  if(pw>1e-6){
-    const px_=(MVP[0]*pv[0]+MVP[4]*pv[1]+MVP[8]*pv[2]+MVP[12])/pw;
-    const py_=(MVP[1]*pv[0]+MVP[5]*pv[1]+MVP[9]*pv[2]+MVP[13])/pw;
-    marker.style.left=((px_*.5+.5)*w)+'px';
-    marker.style.top=((.5-py_*.5)*h)+'px';
-  }
+//
+// Through toScreen, and not through a second copy of it. This took MVP and
+// did the perspective divide and the pixel mapping again itself, which is
+// the same arithmetic as camera.js's toScreen written a second time: two
+// places to change the day a projection changes, and the overlay would then
+// sit somewhere the model is not. Left where it was when the point is
+// behind the camera, which is what the guard in toScreen answers.
+function placeMarker(marker,MV,P,pv,w,h){
+  const s=toScreen(MV,P,w,h,pv);
+  if(!s) return;
+  marker.style.left=s[0]+'px';
+  marker.style.top=s[1]+'px';
 }
 
 // -> showMarker(fadeAfter): the marker shown with its pop restarted, and
