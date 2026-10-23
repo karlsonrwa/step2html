@@ -234,7 +234,12 @@ instead of failing; and every put first tells Tk to let go of the clipboard,
 because a copy Tk made while another program held it open never reached
 Windows and Tk went on pasting it from its memory over the new text (2 of 2,
 `work/clip96/desync_probe.py`). Each rule is made to happen once in [2], with
-the menu, and has its row in the table (12 new, 256 in all). In the owner's
+the menu, and has its row in the table (12 new, 256 in all). The two rules
+that need a program holding the clipboard open hold it 0.25 s against ten
+pastes about 51 ms apart, so the paste lands on the sixth try, about 200 ms
+from either end; at 0.4 s it landed on the ninth, 60 ms from the last, and
+one late holder would have failed a healthy run (try 9 in 84 runs of 84,
+then try 6 in 84 of 84 for each rule, 23 Oct 2026). In the owner's
 session on the 4090 all 21 rows naming `test_editing` were caught, the nine
 old ones by the same checks as on 23 Sep; 8 parallel copies passed 8 of 8, and
 8 beside two windows of `test_gui` 10 of 10; 84 runs on 4-16 copies had no

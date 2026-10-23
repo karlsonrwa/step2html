@@ -432,14 +432,16 @@ def press(widget, keycode: int) -> str:
 def clipboard_rules(root, app, field, clip, from_menu) -> None:
     """Each rule the checks of the clipboard stand on, made to happen once -
     with the menu, so on any desktop, keys or no keys. A program holding the
-    clipboard open for 0.4 s at the paste, twice: once for a paste that must
-    land, once for one a check expects refused. Then a put by "another
+    clipboard open for 0.25 s at the paste, twice: once for a paste that must
+    land, once for one a check expects refused. A try every ~51 ms lands the
+    paste on about the sixth of ten, ~200 ms from either end; 0.4 s landed it
+    on try 9 in 84 runs of 84, ~60 ms from the last (23.10.2026). Then a put by "another
     program" after this suite's copy, and after its put: neither check is
     judged, and nor is a refused paste once another program has emptied the
     clipboard. A copy made while the clipboard is held open does not outlive
     the next put. And the put-back, told the clipboard changed since this
     suite's own last change, leaves what is there."""
-    holder = hold_clipboard_open(0.4)
+    holder = hold_clipboard_open(0.25)
     held = clipboard_open_elsewhere()
     verdict, why, tries = pasted(from_menu, app.step_path.get, "D:/pasted/from menu", clip)
     if holder is not None:
@@ -452,7 +454,7 @@ def clipboard_rules(root, app, field, clip, from_menu) -> None:
 
     # On an editable field a refused paste is a wrong answer: one held up at
     # first must still land, within the ten chances.
-    holder = hold_clipboard_open(0.4)
+    holder = hold_clipboard_open(0.25)
     held = clipboard_open_elsewhere()
     verdict, why, tries = refused(from_menu, app.step_path.get, "", clip)
     if holder is not None:
