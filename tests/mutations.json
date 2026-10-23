@@ -2446,7 +2446,7 @@
  {
   "id": "clip-test-text-only-promised",
   "file": "tests/test_editing.py",
-  "old": "        why = put_clipboard_text(text)\n        self.ours = clipboard_sequence()\n",
+  "old": "        why = put_clipboard_text(text, pump=self.root.update)\n        self.ours = clipboard_sequence()\n",
   "new": "        why = self.root.clipboard_clear() or self.root.clipboard_append(text) or \"\"\n        self.ours = clipboard_sequence()\n",
   "suites": [
    "tests/test_editing.py"
@@ -2506,8 +2506,8 @@
  {
   "id": "clip-changed-clipboard-judged",
   "file": "tests/test_editing.py",
-  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return False, f\"{shown()!r} after ten pastes\", tries\n",
-  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return False, f\"{shown()!r} after ten pastes\", tries\n",
+  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    if judge_busy and clipboard_open_elsewhere() and not clipboard_owned_here():\n        return None, HELD, tries\n    return False, f\"{clipboard_shown(shown(), OWN)} after ten pastes\", tries\n",
+  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    if judge_busy and clipboard_open_elsewhere() and not clipboard_owned_here():\n        return None, HELD, tries\n    return False, f\"{clipboard_shown(shown(), OWN)} after ten pastes\", tries\n",
   "suites": [
    "tests/test_editing.py"
   ],
@@ -2516,8 +2516,8 @@
  {
   "id": "clip-changed-refused-judged",
   "file": "tests/test_editing.py",
-  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return True, \"\", tries\n",
-  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return True, \"\", tries\n",
+  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    # Held open all along, the pastes inserted nothing anywhere: no evidence.\n",
+  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    # Held open all along, the pastes inserted nothing anywhere: no evidence.\n",
   "suites": [
    "tests/test_editing.py"
   ],
@@ -2562,5 +2562,85 @@
    "tests/test_editing.py"
   ],
   "why": "Ctrl+X under a non-Latin layout deletes the selection without copying it - the one key of the four the table had no row for"
+ },
+ {
+  "id": "clip-busy-put-failed",
+  "file": "tests/harness.py",
+  "old": "    raise ClipboardBusy(f\"{what}: another program kept the clipboard open\")\n",
+  "new": "    return f\"{what}: another program kept the clipboard open\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a put or read another program keeps the clipboard from fails instead of staying unjudged: \"Ctrl+X cuts it\" failed that way after 2 s while the owner copied over RDP (23.10.2026)"
+ },
+ {
+  "id": "clip-busy-read-failed",
+  "file": "tests/harness.py",
+  "old": "        return None, _busy(f\"another process could not open the clipboard for {seconds / 2:g} s\")\n",
+  "new": "        return None, f\"another process could not open the clipboard for {seconds / 2:g} s\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a read the clipboard is kept from comes back as a plain failure, never as busy"
+ },
+ {
+  "id": "clip-own-promise-not-judged",
+  "file": "tests/harness.py",
+  "old": "    if clipboard_owned_here():\n        return f\"{what}, while the clipboard is this process's own promise\"\n",
+  "new": "    if False:\n        return f\"{what}, while the clipboard is this process's own promise\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a clipboard held up by this suite's own promise counts as busy, so the Tk-promise defect would read as not judged instead of failing"
+ },
+ {
+  "id": "clip-busy-paste-failed",
+  "file": "tests/test_editing.py",
+  "old": "    if judge_busy and clipboard_open_elsewhere() and not clipboard_owned_here():\n        return None, HELD, tries\n    return False, f\"{clipboard_shown(shown(), OWN)} after ten pastes\", tries\n",
+  "new": "    if False:\n        return None, HELD, tries\n    return False, f\"{clipboard_shown(shown(), OWN)} after ten pastes\", tries\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "ten pastes another program kept the clipboard from fail instead of staying unjudged"
+ },
+ {
+  "id": "clip-busy-refused-passed",
+  "file": "tests/test_editing.py",
+  "old": "    if judge_busy and clipboard_open_elsewhere() and not clipboard_owned_here():\n        return None, HELD, tries\n    return True, \"\", tries\n",
+  "new": "    if False:\n        return None, HELD, tries\n    return True, \"\", tries\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "ten refused pastes another program kept the clipboard from pass as a refusal, though they would have inserted nothing anywhere"
+ },
+ {
+  "id": "clip-user-text-shown",
+  "file": "tests/harness.py",
+  "old": "    return f\"{len(text)} characters that are not this suite's\"\n",
+  "new": "    return repr(text)\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a check shows clipboard text that is not the suite's own - the user's: the owner's copied text went into 18 stress logs on the 4090 (23.10.2026)"
+ },
+ {
+  "id": "clip-put-does-not-pump",
+  "file": "tests/harness.py",
+  "old": "        if pump:\n            pump()\n",
+  "new": "        if False:\n            pump()\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a put waits without pumping, so a reader sitting on this suite's own promise (rdpclip.exe, after the app's Copy) and the put wait on each other until the put gives up: 1 of 8 parallel copies failed \"Ctrl+X cuts it\" so (23.10.2026)"
+ },
+ {
+  "id": "clip-read-tried-once",
+  "file": "tests/test_editing.py",
+  "old": "        for tries in range(1, 11):\n            self.read_tries = tries\n",
+  "new": "        for tries in range(1, 2):\n            self.read_tries = tries\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "Tk's read of the clipboard is tried once: it fails at once while another program holds the clipboard open - rdpclip.exe, for a moment after every change - and a copy's check calls the clipboard busy; the self-test of a copy the clipboard changed under passed so, on that moment instead of on the change, in 25 stress runs of 184 (23.10.2026)"
  }
 ]

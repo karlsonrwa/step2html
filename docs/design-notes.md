@@ -234,7 +234,44 @@ instead of failing; and every put first tells Tk to let go of the clipboard,
 because a copy Tk made while another program held it open never reached
 Windows and Tk went on pasting it from its memory over the new text (2 of 2,
 `work/clip96/desync_probe.py`). Each rule is made to happen once in [2], with
-the menu, and has its row in the table (12 new, 256 in all). The two rules
+the menu, and has its row in the table (12 new, 256 in all; eight more since,
+264). A clipboard another program keeps open past a wait - the put's
+10 s, the read's 5 s, ten pastes - leaves its check "not judged", never
+failed. Unless what holds it up is the suite's own promise: then the
+defect is the suite's, and it fails (harness.ClipboardBusy,
+clipboard_owned_here). That exception found such a defect on its first run
+on the 4090: "Ctrl+X cuts it" failed on 1 copy of 8 after a 10 s put, the
+suite's promise still on the clipboard. Right after the app's Cut, a reader
+opens the clipboard for the new text (rdpclip.exe does on every change, as
+above) and waits for Tk to hand it over; Tk does that only from its event
+loop, and the put only slept, so each waited for the other until the put
+ran out of time. A put now runs Tk's events while it waits
+(`pump=root.update`): no such FAIL in 277 runs after that, 2 in 102 before.
+[2] makes the wait happen with a reader of its own, though not on Tk's
+text: in the owner's session rdpclip.exe opened the clipboard for that
+promise first, and the reader either never got in or had nothing left to
+wait for - 53 of 100 runs unjudged, 2 failed, and the row for the rule
+survived. The promise is now in a format of the suite's own, made by a
+window of the suite's own thread (harness.ClipboardPromise), and the reader
+asks for it only once the suite stops pumping
+(harness.read_clipboard_in_background): nobody else touched it in 6 runs of
+6 there. The same check had failed once
+before, after a 2 s put in a round where the owner copied something over
+RDP, and that copy was blamed; most likely it was this deadlock - not
+measured. Tk's own read, the one a copy's check makes, gets ten tries as
+well (Clipboard.get): made once, it failed in a moment another program
+held the clipboard, and the self-test of a copy the clipboard changed
+under passed on that instead of on the change, in 25 runs of 184. The
+three self-tests of a
+change now pass on the change alone; anything else leaves them "not
+judged". Two more - the put held up by the suite's own promise, the read
+held open - now say so too when the clipboard changes under them: in 25
+seconds of a 16-copy round something else changed the clipboard, three
+runs met it, and the two of them without the check failed; two minutes
+later the owner asked for his clipboard back. And a check shows text off
+the clipboard only when it is the suite's own - else its length - because
+a check's detail is printed even when it passes, and the owner's copied
+text once went into 18 stress logs that way (harness.clipboard_shown). The two rules
 that need a program holding the clipboard open hold it 0.25 s against ten
 pastes about 51 ms apart, so the paste lands on the sixth try, about 200 ms
 from either end; at 0.4 s it landed on the ninth, 60 ms from the last, and
