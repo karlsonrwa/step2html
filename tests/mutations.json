@@ -2442,5 +2442,125 @@
    "tests/test_browser.py"
   ],
   "why": "every press on the canvas puts the centre of rotation up with no fade, because a turn may be starting; a click in measuring mode places a point and moves no centre, so the ring must be let go of on the way up - without this it stays until the next ordinary release and goes into a saved picture with it"
+ },
+ {
+  "id": "clip-test-text-only-promised",
+  "file": "tests/test_editing.py",
+  "old": "        why = put_clipboard_text(text)\n        self.ours = clipboard_sequence()\n",
+  "new": "        why = self.root.clipboard_clear() or self.root.clipboard_append(text) or \"\"\n        self.ours = clipboard_sequence()\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the suite's text goes on the clipboard through Tk again, which only promises it: another process reading it waits for this copy's event loop, and the text dies with the process (Simple 3D round 96; here the user's text was gone after 6 runs of 6, 23.10.2026)"
+ },
+ {
+  "id": "clip-user-text-not-put-back",
+  "file": "tests/test_editing.py",
+  "old": "                done, why = clip.put_back()\n",
+  "new": "                done, why = \"put\", \"\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the user's own text is not put back at the end: the suite's last text stays on their clipboard"
+ },
+ {
+  "id": "clip-user-text-put-back-as-a-promise",
+  "file": "tests/test_editing.py",
+  "old": "        return put_back_clipboard_text(self.before or None, self.ours)\n",
+  "new": "        self.root.clipboard_clear()\n        self.root.clipboard_append(self.before or \"\")\n        return \"put\", \"\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the user's text is put back through Tk, as it was until 23.10.2026: only promised, it dies with the process - gone after 6 runs of 6 in session 0 of the 4090"
+ },
+ {
+  "id": "clip-put-only-empties",
+  "file": "tests/harness.py",
+  "old": "        if text is None:\n            return \"\"\n",
+  "new": "        if True:\n            return \"\"\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "put_clipboard_text empties the clipboard and puts nothing, and says it is done"
+ },
+ {
+  "id": "clip-paste-tried-once",
+  "file": "tests/test_editing.py",
+  "old": "    for tries in range(1, 11):\n        missed = paste() or \"\"\n        if missed:\n            return False, missed, tries\n        if shown() == expected:\n",
+  "new": "    for tries in range(1, 2):\n        missed = paste() or \"\"\n        if missed:\n            return False, missed, tries\n        if shown() == expected:\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a paste is tried once: one that finds the clipboard held open for a moment by a program that reads it inserts nothing and fails, as 6 of 308 did in Simple 3D's suite on 2-16 copies"
+ },
+ {
+  "id": "clip-refused-paste-tried-once",
+  "file": "tests/test_editing.py",
+  "old": "    for tries in range(1, 11):\n        missed = paste() or \"\"\n        if missed:\n            return False, missed, tries\n        if shown() != before:\n",
+  "new": "    for tries in range(1, 2):\n        missed = paste() or \"\"\n        if missed:\n            return False, missed, tries\n        if shown() != before:\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a paste a check expects refused is tried once: held up by a program that has the clipboard open it inserts nothing, and an editable target passes for a read-only one"
+ },
+ {
+  "id": "clip-changed-clipboard-judged",
+  "file": "tests/test_editing.py",
+  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return False, f\"{shown()!r} after ten pastes\", tries\n",
+  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return False, f\"{shown()!r} after ten pastes\", tries\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a paste the clipboard changed under is judged anyway: the user's own copy in the middle of a check fails it, and an unrelated mutation reads as caught (notepad++.exe did it twice in 220 runs of Simple 3D's suite)"
+ },
+ {
+  "id": "clip-changed-refused-judged",
+  "file": "tests/test_editing.py",
+  "old": "        if clip.changed():\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return True, \"\", tries\n",
+  "new": "        if False:\n            return None, CHANGED, tries\n        time.sleep(0.05)\n    return True, \"\", tries\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a refused paste is judged though the clipboard changed under it and nothing landed: an emptied clipboard pastes nothing, and an editable target passes for a read-only one"
+ },
+ {
+  "id": "clip-changed-copy-judged",
+  "file": "tests/test_editing.py",
+  "old": "    if clip.changed():\n        return None, CHANGED\n",
+  "new": "    if False:\n        return None, CHANGED\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "a copy check is judged though the clipboard changed after the copy: the user's own copy fails it"
+ },
+ {
+  "id": "clip-put-back-over-newer",
+  "file": "tests/harness.py",
+  "old": "    if clipboard_sequence() != ours:\n        return \"left\", ",
+  "new": "    if False:\n        return \"left\", ",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "the user's old text is put back over a newer copy they made while the suite ran"
+ },
+ {
+  "id": "clip-tk-keeps-its-old-copy",
+  "file": "tests/test_editing.py",
+  "old": "        self.root.tk.call(\"selection\", \"clear\", \"-displayof\", self.root,\n                          \"-selection\", \"CLIPBOARD\")\n",
+  "new": "        pass\n",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "Tk is not told to let go of the clipboard before a put: after a copy of its own that never reached Windows, because another program held the clipboard open, Tk pastes that old copy from its memory over the new text (work/clip96/desync_probe.py, 23.10.2026)"
+ },
+ {
+  "id": "editing-cut-only-deletes",
+  "file": "step2html/gui/editing.py",
+  "old": "88: \"<<Cut>>\"",
+  "new": "88: \"<<Clear>>\"",
+  "suites": [
+   "tests/test_editing.py"
+  ],
+  "why": "Ctrl+X under a non-Latin layout deletes the selection without copying it - the one key of the four the table had no row for"
  }
 ]

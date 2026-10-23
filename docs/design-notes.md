@@ -206,7 +206,44 @@ keycode and declines when the keysym is the Latin letter, or under a Latin
 layout every paste would happen twice. Measured rather than assumed:
 `tests/test_editing.py` switches the layout for its own thread and presses the
 key by keycode - the "cannot be tested" that stood in the way was as wrong as
-"no display" had been.
+"no display" had been. Since 23 Sep 2026 its window, and the ones `test_gui`
+maps, live on a desktop of their own (`tests/harness.keep_windows_off_screen`,
+at the user's request): still mapped, so the keys and the focus behave as
+before - the same 30 and 60 checks with the same verdicts, and every mutation
+row caught by the same check - but nothing comes up on the user's desktop,
+and the foreground the suite forces is nobody's.
+
+**A test puts text on the clipboard as real data, never as Tk's promise.**
+Tk's `clipboard_append` makes a Tk window the clipboard's owner and only
+promises the text: whoever reads it waits for that window's event loop, up to
+30 s, and the text dies with the process. `tests/test_editing.py` put the
+user's text "back" that way, and on 23 Oct 2026, in session 0 of the 4090
+where nobody else uses the clipboard, the text the clipboard held before the
+suite was gone after it in 6 runs of 6 (`work/clip96/defect_probe.py`); a
+reader that took the suite's turn - the named mutex Simple 3D's suite takes
+too - the moment it was given away waited 0.2 s and got nothing. Now
+`tests/harness.py` puts real data with Win32, the user's text is read by
+another process within 10 s and put back the same way - unless the clipboard
+changed since the suite's own last change, when what is there is newer and
+stays: kept in 6 runs of 6, read in 0.03 s. The real clipboard brings the rest
+of the session in, and the suite allows for each part: a paste gets ten
+chances, since a paste inserts nothing while another program holds the
+clipboard open (rdpclip.exe does, on every change, in an RDP session); a check
+the clipboard changed under - the user's own copy mid-run - says "not judged"
+instead of failing; and every put first tells Tk to let go of the clipboard,
+because a copy Tk made while another program held it open never reached
+Windows and Tk went on pasting it from its memory over the new text (2 of 2,
+`work/clip96/desync_probe.py`). Each rule is made to happen once in [2], with
+the menu, and has its row in the table (12 new, 256 in all). In the owner's
+session on the 4090 all 21 rows naming `test_editing` were caught, the nine
+old ones by the same checks as on 23 Sep; 8 parallel copies passed 8 of 8, and
+8 beside two windows of `test_gui` 10 of 10; 84 runs on 4-16 copies had no
+FAIL and no check left unjudged, and the user's text was there after all 10
+rounds - the old suite, 36 runs, lost it after all 6. Two checks turned out
+to pass for the wrong reason: the read-only log's paste check passed with no
+key delivered at all, and the cut's check on the text the copy before it had
+left - a cut that only deleted was caught by the fake events of [1], never by
+the real key. The price: the suite holds the turn about 2.4 s instead of 0.2.
 
 **The mesh export is checked face by face, not trusted by order.**
 `RWGltf_CafWriter` hands the triangulations back as one primitive per face,

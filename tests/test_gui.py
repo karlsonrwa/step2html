@@ -19,7 +19,7 @@ from pathlib import Path
 
 import tkinter as tk
 
-from harness import ROOT, check, run, scratch
+from harness import ROOT, check, keep_windows_off_screen, run, scratch
 from fixtures import coloured_assembly
 from step2html import convert as core
 from step2html.gui import app as gui
@@ -96,6 +96,13 @@ def check_startup_failure():
 
 
 def main():
+    # The Apps in Toplevels below are mapped windows; on the user's desktop
+    # two of them came up on every run (measured 2026-09-23). On a desktop of
+    # their own nobody sees them. Before the first Tk(), or it is too late.
+    why = keep_windows_off_screen()
+    if why:
+        print(f"note: the windows are shown on this desktop - {why}")
+
     # Everything this suite writes goes under work/tmp on D:, never the system
     # TEMP: tempfile's default is on C:, whose write endurance the user
     # conserves on purpose, and one run of this suite writes a few megabytes.
